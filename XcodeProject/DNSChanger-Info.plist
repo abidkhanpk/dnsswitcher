@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key>
-	<string>APP_BUNDLE_ID</string>
+	<string>com.pacman.DNSChanger</string>
 	<key>CFBundleName</key>
 	<string>DNSChanger</string>
 	<key>CFBundleDisplayName</key>
@@ -24,8 +24,8 @@
 	<string>NSApplication</string>
 	<key>SMPrivilegedExecutables</key>
 	<dict>
-		<key>HELPER_BUNDLE_ID</key>
-		<string>anchor apple generic and identifier \"HELPER_BUNDLE_ID\" and certificate leaf[subject.OU] = \"TEAM_ID\"</string>
+		<key>com.pacman.DNSChangerHelper</key>
+		<string>anchor apple generic and identifier \"com.pacman.DNSChangerHelper\" and certificate leaf[subject.OU] = \"TEAM_ID\"</string>
 	</dict>
 </dict>
 </plist>

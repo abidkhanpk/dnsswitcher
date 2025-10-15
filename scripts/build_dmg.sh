@@ -2,7 +2,7 @@
 set -euo pipefail
 
 DMG_PATH="Build/DNSChanger.dmg"
-APP_PATH="DerivedData/Build/Products/Release/DNSChanger.app"
+APP_PATH="Build/DNSChanger.app"
 
 mkdir -p Build
 

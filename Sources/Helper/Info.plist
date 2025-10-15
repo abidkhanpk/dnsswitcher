@@ -3,10 +3,10 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>HELPER_BUNDLE_ID</string>
+	<string>com.pacman.DNSChangerHelper</string>
 	<key>MachServices</key>
 	<dict>
-		<key>HELPER_MACH_NAME</key>
+		<key>com.pacman.DNSChangerHelper.mach</key>
 		<true/>
 	</dict>
 	<key>ProgramArguments</key>
