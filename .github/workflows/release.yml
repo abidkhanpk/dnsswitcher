@@ -21,30 +21,30 @@ jobs:
         run: brew install xcodegen
 
       - name: Generate Xcode Project
-        working-directory: dnschanger/XcodeProject
+        working-directory: XcodeProject
         run: xcodegen generate
 
       - name: Build App
-        working-directory: dnschanger
+        working-directory: .
         run: xcodebuild -project XcodeProject/DNSChanger.xcodeproj -scheme DNSChanger -configuration Release -derivedDataPath DerivedData -destination "platform=macOS" build
 
       - name: Sign and Archive
-        working-directory: dnschanger
+        working-directory: .
         run: bash scripts/codesign_and_archive.sh
         env:
           DEVELOPER_ID_APP: ${{ secrets.DEVELOPER_ID_APP }}
 
       - name: Build PKG
-        working-directory: dnschanger
+        working-directory: .
         run: bash scripts/build_pkg.sh
 
       - name: Build DMG
-        working-directory: dnschanger
+        working-directory: .
         run: bash scripts/build_dmg.sh
 
       - name: Notarize Artifacts
         if: env.APPLE_ID != ''
-        working-directory: dnschanger
+        working-directory: .
         run: bash scripts/notarize.sh
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -52,14 +52,14 @@ jobs:
           TEAM_ID: ${{ secrets.TEAM_ID }}
 
       - name: Verify Signature
-        working-directory: dnschanger
+        working-directory: .
         run: bash scripts/verify_signature.sh
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: DNSChanger-Build
-          path: dnschanger/Build/
+          path: Build/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -69,8 +69,8 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            dnschanger/Build/DNSChanger.app
-            dnschanger/Build/DNSChanger.pkg
-            dnschanger/Build/DNSChanger.dmg
+            Build/DNSChanger.app
+            Build/DNSChanger.pkg
+            Build/DNSChanger.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

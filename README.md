@@ -24,7 +24,7 @@ This repository is structured to be built headlessly on GitHub macOS runners, pr
 ## Repository Layout
 
 ```
-dnschanger/
+.
 ├─ README.md
 ├─ LICENSE
 ├─ .gitignore
@@ -47,8 +47,8 @@ dnschanger/
 │  │  ├─ AppDelegate.swift
 │  │  ├─ MenuBarController.swift
 │  │  ├─ DNSChangerClient.swift
-│  │  ├─ Models/DNSProfile.swift
-│  │  └─ Assets.xcassets/
+│  │  ├─ Models/
+│  │  │  └─ DNSProfile.swift
 │  ├─ Helper/
 │  │  ├─ main.swift
 │  │  ├─ DNSChangerHelper.swift
