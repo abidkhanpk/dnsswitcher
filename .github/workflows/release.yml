@@ -26,7 +26,7 @@ jobs:
 
       - name: Build App
         working-directory: .
-        run: xcodebuild -project XcodeProject/DNSChanger.xcodeproj -scheme DNSChanger -configuration Release -derivedDataPath DerivedData -destination "platform=macOS" build
+        run: xcodebuild -project XcodeProject/DNSChanger.xcodeproj -scheme DNSChanger -configuration Release -derivedDataPath DerivedData -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
 
       - name: Sign and Archive
         working-directory: .

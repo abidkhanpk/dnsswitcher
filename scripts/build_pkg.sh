@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-APP_PATH="DerivedData/Build/Products/Release/DNSChanger.app"
+APP_PATH="Build/DNSChanger.app"
 PKG_PATH="Build/DNSChanger.pkg"
 
 mkdir -p Build
