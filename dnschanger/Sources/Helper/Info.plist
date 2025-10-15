@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>HELPER_BUNDLE_ID</string>
+	<key>MachServices</key>
+	<dict>
+		<key>HELPER_MACH_NAME</key>
+		<true/>
+	</dict>
+	<key>ProgramArguments</key>
+	<array>
+		<string>$(PRODUCT_BUNDLE_EXECUTABLE)</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>SMPrivilegedExecutables</key>
+	<dict/>
+</dict>
+</plist>

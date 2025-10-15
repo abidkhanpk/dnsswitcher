@@ -1,0 +1,90 @@
+name: DNSChanger
+options:
+  minimumXcodeGenVersion: 2.38.0
+  deploymentTarget:
+    macOS: "13.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+settings:
+  base:
+    PRODUCT_NAME: DNSChanger
+    DEVELOPMENT_TEAM: TEAM_ID
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "Developer ID Application"
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 1.0.0
+    SWIFT_VERSION: 5.0
+    ENABLE_HARDENED_RUNTIME: YES
+    SUPPORTED_PLATFORMS: macosx
+    SUPPORTED_ARCHS: "arm64 x86_64"
+    ALWAYS_SEARCH_USER_PATHS: NO
+
+packages: {}
+
+configs:
+  Debug: debug
+  Release: release
+
+targets:
+  DNSChanger:
+    type: application
+    platform: macOS
+    sources:
+      - path: ../Sources/App
+      - path: ../Sources/Shared
+      - path: ../Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: APP_BUNDLE_ID
+        INFOPLIST_FILE: DNSChanger-Info.plist
+        OTHER_CODE_SIGN_FLAGS: "--deep --timestamp"
+      configs:
+        Release:
+          CODE_SIGN_IDENTITY: "$(DEVELOPER_ID_APP)"
+    dependencies:
+      - target: DNSChangerHelper
+    preBuildScripts:
+      - name: Inject Helper Code Requirement
+        script: |
+          set -euo pipefail
+          HELPER_APP="${BUILT_PRODUCTS_DIR}/DNSChangerHelper"
+          if [ -x "$HELPER_APP" ]; then
+            REQ=$(codesign -dr - "$HELPER_APP" 2>/dev/null | sed 's/^designated => //')
+            /usr/libexec/PlistBuddy -c "Delete :SMPrivilegedExecutables:HELPER_BUNDLE_ID" "${TARGET_BUILD_DIR}/${INFOPLIST_PATH}" || true
+            /usr/libexec/PlistBuddy -c "Add :SMPrivilegedExecutables:HELPER_BUNDLE_ID string $REQ" "${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
+          fi
+        basedOnDependencyAnalysis: false
+
+  DNSChangerHelper:
+    type: tool
+    platform: macOS
+    sources:
+      - path: ../Sources/Helper
+    settings:
+      base:
+        PRODUCT_NAME: DNSChangerHelper
+        PRODUCT_BUNDLE_IDENTIFIER: HELPER_BUNDLE_ID
+        MACH_O_TYPE: mh_execute
+        INFOPLIST_FILE: ../Sources/Helper/Info.plist
+        LAUNCHD_PLIST_OUTPUT_FORMAT: binary1
+        CODE_SIGN_IDENTITY: "Developer ID Application"
+        OTHER_CODE_SIGN_FLAGS: "--timestamp"
+    postBuildScripts:
+      - name: Create Launchd Plist
+        script: |
+          set -euo pipefail
+          # Ensure helper is built as a launchd tool with Info.plist containing MachServices
+          :
+        basedOnDependencyAnalysis: false
+
+schemes:
+  DNSChanger:
+    build:
+      targets:
+        DNSChanger: all
+        DNSChangerHelper: all
+    run:
+      config: Release
+    archive:
+      config: Release
