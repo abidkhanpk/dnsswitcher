@@ -1,0 +1,63 @@
+name: Build, Sign, Package, and Release DNSChanger
+
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Build App
+        run: xcodebuild -scheme DNSChanger -configuration Release build
+
+      - name: Sign and Archive
+        run: bash scripts/codesign_and_archive.sh
+        env:
+          DEVELOPER_ID_APP: ${{ secrets.DEVELOPER_ID_APP }}
+
+      - name: Build PKG
+        run: bash scripts/build_pkg.sh
+
+      - name: Build DMG
+        run: bash scripts/build_dmg.sh
+
+      - name: Notarize Artifacts
+        if: env.APPLE_ID != ''
+        run: bash scripts/notarize.sh
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APP_SPECIFIC_PASSWORD: ${{ secrets.APP_SPECIFIC_PASSWORD }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+
+      - name: Verify Signature
+        run: bash scripts/verify_signature.sh
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: DNSChanger-Build
+          path: Build/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: "DNSChanger Build ${{ github.run_number }}"
+          draft: false
+          prerelease: false
+          files: |
+            Build/DNSChanger.app
+            Build/DNSChanger.pkg
+            Build/DNSChanger.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
