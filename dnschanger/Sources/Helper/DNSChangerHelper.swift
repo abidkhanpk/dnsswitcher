@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelperBlessProtocol {
 
@@ -12,8 +13,13 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
             reply(false, "No network services found")
             return
         }
+        let resolved = normalizeServers(servers)
+        guard !resolved.isEmpty else {
+            reply(false, "No valid DNS servers after normalization")
+            return
+        }
         for svc in services {
-            let res = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc,] + servers)
+            let res = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc] + resolved)
             if !res.success { reply(false, "Failed for \(svc): \(res.output)"); return }
         }
         reply(true, "Applied to \(services.count) services")
@@ -47,7 +53,70 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && !$0.hasPrefix("An asterisk") && !$0.hasPrefix("*") }
     }
-
+    
+    private func isIPAddress(_ s: String) -> Bool {
+    let ipv4Pattern = "^((25[0-5]|2[0-4]\\d|[0-1]?\\d?\\d)(\\.|$)){4}$"
+    let ipv6Pattern = "^[0-9a-fA-F:]+$"
+    return s.range(of: ipv4Pattern, options: .regularExpression) != nil || s.range(of: ipv6Pattern, options: .regularExpression) != nil
+    }
+    
+    private func extractHostname(from s: String) -> String? {
+    if let comp = URLComponents(string: s), let host = comp.host, !host.isEmpty {
+    return host
+    }
+    if !isIPAddress(s), s.contains(".") {
+    return s
+    }
+    return nil
+    }
+    
+    private func resolveHostToIPs(_ host: String) -> [String] {
+    var results: [String] = []
+    var hints = addrinfo(ai_flags: AI_DEFAULT, ai_family: AF_UNSPEC, ai_socktype: SOCK_DGRAM, ai_protocol: 0, ai_addrlen: 0, ai_canonname: nil, ai_addr: nil, ai_next: nil)
+    var res: UnsafeMutablePointer<addrinfo>?
+    let status = getaddrinfo(host, nil, &hints, &res)
+    if status == 0, let first = res {
+    var ptr: UnsafeMutablePointer<addrinfo>? = first
+    while let ai = ptr?.pointee {
+    if let sa = ai.ai_addr {
+    var buffer = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+    let fam = sa.pointee.sa_family
+    if fam == sa_family_t(AF_INET) || fam == sa_family_t(AF_INET6) {
+    let err = getnameinfo(sa, socklen_t(ai.ai_addrlen), &buffer, socklen_t(buffer.count), nil, 0, NI_NUMERICHOST)
+    if err == 0 {
+    let ip = String(cString: buffer)
+    if !results.contains(ip) {
+    results.append(ip)
+    }
+    }
+    }
+    }
+    ptr = ai.ai_next
+    }
+    freeaddrinfo(first)
+    }
+    return results
+    }
+    
+    private func normalizeServers(_ servers: [String]) -> [String] {
+    var ips: [String] = []
+    for s in servers {
+    if isIPAddress(s) {
+    if !ips.contains(s) { ips.append(s) }
+    continue
+    }
+    if let host = extractHostname(from: s) {
+    let resolved = resolveHostToIPs(host)
+    for ip in resolved where !ips.contains(ip) {
+    ips.append(ip)
+    }
+    continue
+    }
+    // ignore unknown formats
+    }
+    return ips
+    }
+    
     private func runCommand(_ launchPath: String, _ arguments: [String]) -> (success: Bool, output: String) {
         let task = Process()
         task.launchPath = launchPath
