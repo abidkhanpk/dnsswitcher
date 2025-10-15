@@ -4,7 +4,7 @@ import ServiceManagement
 final class DNSChangerClient: NSObject {
     static let shared = DNSChangerClient()
 
-    private let helperMachName = "HELPER_MACH_NAME" // replace via build settings or script
+    private let helperMachName = "com.pacman.DNSChangerHelper.mach"
     private var connection: NSXPCConnection?
 
     private override init() {}
@@ -34,7 +34,7 @@ final class DNSChangerClient: NSObject {
 
     private func blessHelper(completion: @escaping (Bool) -> Void) {
         var cfError: Unmanaged<CFError>?
-        let helperID = "HELPER_BUNDLE_ID" // replace
+        let helperID = "com.pacman.DNSChangerHelper"
         let blessed = SMJobBless(kSMDomainSystemLaunchd, helperID as CFString, nil, &cfError)
         if !blessed {
             if let err = cfError?.takeRetainedValue() { NSLog("SMJobBless failed: \(err)") }

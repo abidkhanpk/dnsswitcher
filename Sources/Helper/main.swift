@@ -10,7 +10,7 @@ class ServiceDelegate: NSObject, NSXPCListenerDelegate {
 }
 
 let delegate = ServiceDelegate()
-let listener = NSXPCListener(machServiceName: "HELPER_MACH_NAME")
+let listener = NSXPCListener(machServiceName: "com.pacman.DNSChangerHelper.mach")
 listener.delegate = delegate
 listener.resume()
 

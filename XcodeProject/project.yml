@@ -36,7 +36,7 @@ targets:
       - path: ../Resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: APP_BUNDLE_ID
+        PRODUCT_BUNDLE_IDENTIFIER: com.pacman.DNSChanger
         INFOPLIST_FILE: DNSChanger-Info.plist
         OTHER_CODE_SIGN_FLAGS: "--deep --timestamp"
       configs:
@@ -51,8 +51,8 @@ targets:
           HELPER_APP="${BUILT_PRODUCTS_DIR}/DNSChangerHelper"
           if [ -x "$HELPER_APP" ]; then
             REQ=$(codesign -dr - "$HELPER_APP" 2>/dev/null | sed 's/^designated => //')
-            /usr/libexec/PlistBuddy -c "Delete :SMPrivilegedExecutables:HELPER_BUNDLE_ID" "${TARGET_BUILD_DIR}/${INFOPLIST_PATH}" || true
-            /usr/libexec/PlistBuddy -c "Add :SMPrivilegedExecutables:HELPER_BUNDLE_ID string $REQ" "${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
+            /usr/libexec/PlistBuddy -c "Delete :SMPrivilegedExecutables:com.pacman.DNSChangerHelper" "${TARGET_BUILD_DIR}/${INFOPLIST_PATH}" || true
+            /usr/libexec/PlistBuddy -c "Add :SMPrivilegedExecutables:com.pacman.DNSChangerHelper string $REQ" "${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
           fi
         basedOnDependencyAnalysis: false
 
@@ -64,7 +64,7 @@ targets:
     settings:
       base:
         PRODUCT_NAME: DNSChangerHelper
-        PRODUCT_BUNDLE_IDENTIFIER: HELPER_BUNDLE_ID
+        PRODUCT_BUNDLE_IDENTIFIER: com.pacman.DNSChangerHelper
         MACH_O_TYPE: mh_execute
         INFOPLIST_FILE: ../Sources/Helper/Info.plist
         LAUNCHD_PLIST_OUTPUT_FORMAT: binary1
