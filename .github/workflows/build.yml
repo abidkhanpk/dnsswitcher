@@ -1,0 +1,66 @@
+name: Build and Package (macOS)
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.4
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.4'
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project from project.yml
+        working-directory: XcodeProject
+        run: xcodegen generate
+
+      - name: Clean
+        run: rm -rf DerivedData Build
+
+      - name: Build (Release, unsigned)
+        run: |
+          xcodebuild -project XcodeProject/DNSChanger.xcodeproj \
+            -scheme DNSChanger \
+            -configuration Release \
+            -derivedDataPath DerivedData \
+            -destination "generic/platform=macOS" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            build
+
+      - name: Stage .app
+        run: |
+          mkdir -p Build
+          cp -R DerivedData/Build/Products/Release/DNSChanger.app Build/DNSChanger.app
+
+      - name: Create PKG
+        run: |
+          /usr/bin/pkgbuild --install-location "/Applications" \
+            --component "Build/DNSChanger.app" \
+            "Build/DNSChanger.pkg"
+
+      - name: Create DMG with Applications alias
+        run: |
+          mkdir -p Build/dmg_src
+          cp -R Build/DNSChanger.app Build/dmg_src/
+          ln -s /Applications Build/dmg_src/Applications
+          /usr/bin/hdiutil create -volname "DNSChanger" -srcfolder "Build/dmg_src" -ov -format UDZO "Build/DNSChanger.dmg"
+          rm -rf Build/dmg_src
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: DNSChanger-artifacts
+          path: |
+            Build/DNSChanger.pkg
+            Build/DNSChanger.dmg
