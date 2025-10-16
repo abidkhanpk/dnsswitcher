@@ -77,13 +77,18 @@ final class MenuBarController: NSObject {
 
     private func loadProfiles() {
         var list: [DNSProfile] = DNSProfile.loadDefaultProfiles() ?? []
+        if let hiddenData = UserDefaults.standard.data(forKey: "hiddenDefaultProfileIDs"),
+           let hiddenIDs = try? JSONDecoder().decode([UUID].self, from: hiddenData) {
+            let hiddenSet = Set(hiddenIDs)
+            list.removeAll { hiddenSet.contains($0.id) }
+        }
         if let data = UserDefaults.standard.data(forKey: "customProfiles"),
            let custom = try? JSONDecoder().decode([DNSProfile].self, from: data) {
             list.append(contentsOf: custom)
         }
         profiles = list
-        if activeProfileName == nil, let first = profiles.first {
-            activeProfileName = first.name
+        if activeProfileName == nil || !profiles.contains(where: { $0.name == activeProfileName }) {
+            activeProfileName = profiles.first?.name
         }
     }
 
