@@ -22,7 +22,22 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
             let res = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc] + resolved)
             if !res.success { reply(false, "Failed for \(svc): \(res.output)"); return }
         }
-        reply(true, "Applied to \(services.count) services")
+        // Verify active DNS via scutil --dns
+        let scutil = runCommand("/usr/sbin/scutil", ["--dns"])
+        if scutil.success {
+            let active = scutil.output
+                .components(separatedBy: "\n")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { $0.hasPrefix("nameserver[") }
+                .compactMap { line -> String? in
+                    guard let part = line.split(separator: ":").dropFirst().first else { return nil }
+                    return part.trimmingCharacters(in: .whitespaces)
+                }
+            let ok = resolved.contains(where: { active.contains($0) })
+            reply(ok, ok ? "Applied to \(services.count) services (active: \(active.joined(separator: ", ")))" : "Applied but not active; current: \(active.joined(separator: ", "))")
+        } else {
+            reply(true, "Applied to \(services.count) services (could not verify)")
+        }
     }
 
     func clearDNS(withReply reply: @escaping (Bool, String) -> Void) {
