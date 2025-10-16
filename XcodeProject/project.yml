@@ -34,8 +34,7 @@ targets:
       - path: ../Sources/App
       - path: ../Sources/Shared
     resources:
-      - path: ../Resources/config
-        type: folder
+      - path: ../Resources/config/default_profiles.json
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.pacman.DNSChanger
