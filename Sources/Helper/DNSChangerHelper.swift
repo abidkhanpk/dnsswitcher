@@ -17,13 +17,41 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
             return
         }
         let (ipServers, dohURLs, dotHosts) = classifyServers(servers)
+
+        // Prefer Encrypted DNS (DoH/DoT) over plain IP when present
+        if let doh = dohURLs.first {
+            // Clear any per-service IP DNS so managed profile takes effect
+            for svc in services {
+                _ = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc, "Empty"])
+            }
+            let (ok, msg) = installDoHProfile(serverURL: doh)
+            // Flush caches
+            _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"]) 
+            _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"]) 
+            reply(ok, ok ? "Encrypted DNS (DoH) configured" : "Failed to configure DoH: \(msg)")
+            return
+        }
+        if let dot = dotHosts.first {
+            // Clear any per-service IP DNS so managed profile takes effect
+            for svc in services {
+                _ = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc, "Empty"])
+            }
+            let (ok, msg) = installDoTProfile(serverName: dot)
+            // Flush caches
+            _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"]) 
+            _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"]) 
+            reply(ok, ok ? "Encrypted DNS (DoT) configured" : "Failed to configure DoT: \(msg)")
+            return
+        }
         if !ipServers.isEmpty {
+            // Remove any existing encrypted DNS profile to avoid conflicts
+            _ = removeDoHProfile()
             for svc in services {
                 let res = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc] + ipServers)
                 if !res.success { reply(false, "Failed for \(svc): \(res.output)"); return }
             }
-            _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"])
-            _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"])
+            _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"]) 
+            _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"]) 
             let scutil = runCommand("/usr/sbin/scutil", ["--dns"])
             if scutil.success {
                 let active = scutil.output
@@ -39,16 +67,6 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
             } else {
                 reply(true, "Applied to \(services.count) services (could not verify)")
             }
-            return
-        }
-        if let doh = dohURLs.first {
-            let (ok, msg) = installDoHProfile(serverURL: doh)
-            reply(ok, ok ? "Encrypted DNS (DoH) configured" : "Failed to configure DoH: \(msg)")
-            return
-        }
-        if let dot = dotHosts.first {
-            let (ok, msg) = installDoTProfile(serverName: dot)
-            reply(ok, ok ? "Encrypted DNS (DoT) configured" : "Failed to configure DoT: \(msg)")
             return
         }
         reply(false, "No valid IP or DoH/DoT servers to apply")
