@@ -100,6 +100,10 @@ final class MenuBarController: NSObject {
         guard let profile = sender.representedObject as? DNSProfile else { return }
         activeProfileName = profile.name
         rebuildMenu()
+        // Auto-apply on selection to ensure consistency between UI and system state
+        DNSChangerClient.shared.applyDNS(servers: profile.servers) { success, message in
+            self.notifyUser(title: success ? "DNS Applied" : "Failed", informative: message)
+        }
     }
 
     @objc private func applyDNS() {

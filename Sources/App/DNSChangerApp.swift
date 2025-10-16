@@ -16,6 +16,8 @@ struct PreferencesView: View {
 
     @State private var defaultProfiles: [DNSProfile] = []
     @State private var profiles: [DNSProfile] = [] // custom profiles only
+    @AppStorage("hiddenDefaultProfileIDs") private var hiddenDefaultIDsData: Data = Data()
+    @State private var hiddenDefaultIDs: Set<UUID> = []
     @State private var newName: String = ""
     @State private var newServers: String = ""
     @State private var editingProfile: DNSProfile? = nil
@@ -28,10 +30,22 @@ struct PreferencesView: View {
             List {
                 if !defaultProfiles.isEmpty {
                     Section("Default Profiles") {
-                        ForEach(defaultProfiles) { profile in
-                            VStack(alignment: .leading) {
-                                Text(profile.name).font(.subheadline).bold()
-                                Text(profile.servers.joined(separator: ", ")).font(.caption)
+                        ForEach(defaultProfiles.filter { !hiddenDefaultIDs.contains($0.id) }) { profile in
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(profile.name).font(.subheadline).bold()
+                                    Text(profile.servers.joined(separator: ", ")).font(.caption)
+                                }
+                                Spacer()
+                                Button(role: .destructive) {
+                                    hiddenDefaultIDs.insert(profile.id)
+                                    persistHiddenDefaults()
+                                    // If active profile was hidden, clear selection
+                                    if UserDefaults.standard.string(forKey: "activeProfileName") == profile.name {
+                                        UserDefaults.standard.removeObject(forKey: "activeProfileName")
+                                        NotificationCenter.default.post(name: .profilesUpdated, object: nil)
+                                    }
+                                } label: { Text("Delete") }
                             }
                         }
                     }
@@ -50,6 +64,7 @@ struct PreferencesView: View {
                                 editServers = profile.servers.joined(separator: ", ")
                             }
                             .buttonStyle(LinkButtonStyle())
+                            Button(role: .destructive) { deleteCustom(profile) } label: { Text("Delete") }
                         }
                     }
                     .onDelete { indexSet in
@@ -110,6 +125,11 @@ struct PreferencesView: View {
         } else {
             profiles = []
         }
+        if let data = try? JSONDecoder().decode([UUID].self, from: hiddenDefaultIDsData) {
+            hiddenDefaultIDs = Set(data)
+        } else {
+            hiddenDefaultIDs = []
+        }
     }
 
     private func save() {
@@ -117,6 +137,23 @@ struct PreferencesView: View {
             customProfilesData = data
         }
         NotificationCenter.default.post(name: .profilesUpdated, object: nil)
+    }
+
+    private func persistHiddenDefaults() {
+        let arr = Array(hiddenDefaultIDs)
+        if let data = try? JSONEncoder().encode(arr) {
+            hiddenDefaultIDsData = data
+        }
+        NotificationCenter.default.post(name: .profilesUpdated, object: nil)
+    }
+
+    private func deleteCustom(_ profile: DNSProfile) {
+        profiles.removeAll { $0.id == profile.id }
+        // If active profile was deleted, clear selection
+        if UserDefaults.standard.string(forKey: "activeProfileName") == profile.name {
+            UserDefaults.standard.removeObject(forKey: "activeProfileName")
+        }
+        save()
     }
 }
 
