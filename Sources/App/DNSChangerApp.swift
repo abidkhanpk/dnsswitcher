@@ -14,24 +14,76 @@ struct DNSChangerApp: App {
 struct PreferencesView: View {
     @AppStorage("customProfiles") private var customProfilesData: Data = Data()
 
-    @State private var profiles: [DNSProfile] = []
+    @State private var defaultProfiles: [DNSProfile] = []
+    @State private var profiles: [DNSProfile] = [] // custom profiles only
     @State private var newName: String = ""
     @State private var newServers: String = ""
+    @State private var editingProfile: DNSProfile? = nil
+    @State private var editName: String = ""
+    @State private var editServers: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("DNS Profiles").font(.headline)
             List {
-                ForEach(profiles) { profile in
-                    VStack(alignment: .leading) {
-                        Text(profile.name).font(.subheadline).bold()
-                        Text(profile.servers.joined(separator: ", ")).font(.caption)
+                if !defaultProfiles.isEmpty {
+                    Section("Default Profiles") {
+                        ForEach(defaultProfiles) { profile in
+                            VStack(alignment: .leading) {
+                                Text(profile.name).font(.subheadline).bold()
+                                Text(profile.servers.joined(separator: ", ")).font(.caption)
+                            }
+                        }
                     }
-                }.onDelete { indexSet in
-                    profiles.remove(atOffsets: indexSet)
-                    save()
+                }
+                Section("Custom Profiles") {
+                    ForEach(profiles) { profile in
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(profile.name).font(.subheadline).bold()
+                                Text(profile.servers.joined(separator: ", ")).font(.caption)
+                            }
+                            Spacer()
+                            Button("Edit") {
+                                editingProfile = profile
+                                editName = profile.name
+                                editServers = profile.servers.joined(separator: ", ")
+                            }
+                            .buttonStyle(LinkButtonStyle())
+                        }
+                    }
+                    .onDelete { indexSet in
+                        profiles.remove(atOffsets: indexSet)
+                        save()
+                    }
                 }
             }.frame(minHeight: 240)
+
+            if let editing = editingProfile {
+                Divider()
+                Text("Edit Profile").font(.headline)
+                HStack {
+                    TextField("Profile name", text: $editName)
+                    TextField("Comma-separated servers", text: $editServers)
+                    Button("Save") {
+                        let ss = editServers.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                        guard !editName.isEmpty, !ss.isEmpty else { return }
+                        if let idx = profiles.firstIndex(where: { $0.id == editing.id }) {
+                            profiles[idx].name = editName
+                            profiles[idx].servers = ss
+                            save()
+                        }
+                        editingProfile = nil
+                        editName = ""
+                        editServers = ""
+                    }
+                    Button("Cancel") {
+                        editingProfile = nil
+                        editName = ""
+                        editServers = ""
+                    }
+                }
+            }
 
             HStack {
                 TextField("Profile name", text: $newName)
@@ -52,30 +104,17 @@ struct PreferencesView: View {
     }
 
     private func load() {
-        if let defaults = DNSProfile.loadDefaultProfiles() {
-            var merged = defaults
-            if let custom = try? JSONDecoder().decode([DNSProfile].self, from: customProfilesData), !custom.isEmpty {
-                merged.append(contentsOf: custom)
-            }
-            profiles = merged
+        defaultProfiles = DNSProfile.loadDefaultProfiles() ?? []
+        if let custom = try? JSONDecoder().decode([DNSProfile].self, from: customProfilesData) {
+            profiles = custom
         } else {
-            if let custom = try? JSONDecoder().decode([DNSProfile].self, from: customProfilesData) {
-                profiles = custom
-            }
+            profiles = []
         }
     }
 
     private func save() {
-        // Save only custom profiles (not defaults)
-        if let defaults = DNSProfile.loadDefaultProfiles() {
-            let custom = profiles.filter { p in !defaults.contains(where: { $0.name == p.name && $0.servers == p.servers }) }
-            if let data = try? JSONEncoder().encode(custom) {
-                customProfilesData = data
-            }
-        } else {
-            if let data = try? JSONEncoder().encode(profiles) {
-                customProfilesData = data
-            }
+        if let data = try? JSONEncoder().encode(profiles) {
+            customProfilesData = data
         }
         NotificationCenter.default.post(name: .profilesUpdated, object: nil)
     }
