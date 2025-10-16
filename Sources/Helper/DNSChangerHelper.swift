@@ -306,7 +306,8 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
     }
 
     private func listManagedDNSProfileIdentifiers() -> [String] {
-        let res = runCommand("/usr/bin/profiles", ["show", "-type", "configuration"])
+        // Query system-level profiles explicitly (-user root) to avoid only seeing user-scoped profiles
+        let res = runCommand("/usr/bin/profiles", ["show", "-type", "configuration", "-user", "root"])
         guard res.success else { return [] }
         var ids: [String] = []
         var currentID: String? = nil
