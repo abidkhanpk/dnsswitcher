@@ -24,8 +24,8 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
             for svc in services {
                 _ = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc, "Empty"])
             }
-            // Remove any existing managed DNS profile before installing new one
-            _ = removeDoHProfile()
+            // Remove any existing managed DNS profile before installing new one (from any source)
+            removeAllManagedDNSProfiles()
             let (ok, msg) = installDoHProfile(serverURL: doh)
             // Flush caches
             _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"]) 
@@ -38,8 +38,8 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
             for svc in services {
                 _ = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc, "Empty"])
             }
-            // Remove any existing managed DNS profile before installing new one
-            _ = removeDoHProfile()
+            // Remove any existing managed DNS profile before installing new one (from any source)
+            removeAllManagedDNSProfiles()
             let (ok, msg) = installDoTProfile(serverName: dot)
             // Flush caches
             _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"]) 
@@ -49,7 +49,7 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         }
         if !ipServers.isEmpty {
             // Remove any existing encrypted DNS profile to avoid conflicts
-            _ = removeDoHProfile()
+            removeAllManagedDNSProfiles()
             for svc in services {
                 let res = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc] + ipServers)
                 if !res.success { reply(false, "Failed for \(svc): \(res.output)"); return }
@@ -86,7 +86,7 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
             let res = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc, "Empty"])
             if !res.success { reply(false, "Failed for \(svc): \(res.output)"); return }
         }
-        _ = removeDoHProfile()
+        removeAllManagedDNSProfiles()
         _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"]) 
         _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"]) 
         reply(true, "Cleared on \(services.count) services and removed encrypted DNS (if any)")
@@ -303,6 +303,35 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         if r1.success { return true }
         let r2 = runCommand("/usr/bin/profiles", ["-R", "-p", dohProfileIdentifier])
         return r2.success
+    }
+
+    private func listManagedDNSProfileIdentifiers() -> [String] {
+        let res = runCommand("/usr/bin/profiles", ["show", "-type", "configuration"])
+        guard res.success else { return [] }
+        var ids: [String] = []
+        var currentID: String? = nil
+        for raw in res.output.components(separatedBy: "\n") {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.lowercased().hasPrefix("profile identifier:") {
+                let parts = line.split(separator: ":", maxSplits: 1).map { String($0).trimmingCharacters(in: .whitespaces) }
+                if parts.count == 2 { currentID = parts[1] }
+                continue
+            }
+            if line.contains("com.apple.dnsSettings.managed") {
+                if let id = currentID, !ids.contains(id) {
+                    ids.append(id)
+                }
+            }
+        }
+        return ids
+    }
+
+    private func removeAllManagedDNSProfiles() {
+        let ids = listManagedDNSProfileIdentifiers()
+        for id in ids {
+            _ = runCommand("/usr/bin/profiles", ["remove", "-identifier", id])
+            _ = runCommand("/usr/bin/profiles", ["-R", "-p", id])
+        }
     }
     
     private func runCommand(_ launchPath: String, _ arguments: [String]) -> (success: Bool, output: String) {
