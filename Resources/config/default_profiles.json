@@ -54,5 +54,47 @@
       "https://dns.adguard.com/dns-query",
       "tls://dns.adguard.com"
     ]
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000006",
+    "name": "NextDNS",
+    "servers": [
+      "45.90.28.0",
+      "45.90.30.0",
+      "2a07:a8c0::",
+      "2a07:a8c1::",
+      "https://dns.nextdns.io",
+      "tls://dns.nextdns.io"
+    ]
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000007",
+    "name": "CleanBrowsing (Family)",
+    "servers": [
+      "185.228.168.168",
+      "185.228.169.168",
+      "2a0d:2a00:1::",
+      "2a0d:2a00:2::",
+      "https://family-filter-dns.cleanbrowsing.org/dns-query",
+      "tls://family-filter-dns.cleanbrowsing.org"
+    ]
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000008",
+    "name": "Mullvad",
+    "servers": [
+      "194.242.2.2",
+      "194.242.2.3",
+      "https://doh.mullvad.net/dns-query",
+      "tls://dns.mullvad.net"
+    ]
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000009",
+    "name": "OpenNIC (random example)",
+    "servers": [
+      "193.183.98.66",
+      "172.104.136.243"
+    ]
   }
 ]
