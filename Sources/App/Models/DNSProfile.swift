@@ -50,23 +50,32 @@ extension DNSProfile {
     private static var builtInDefaults: [DNSProfile] {
         return [
             DNSProfile(id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!, name: "Cloudflare", servers: [
-                "1.1.1.1", "1.0.0.1", "2606:4700:4700::1111", "2606:4700:4700::1001",
-                "https://cloudflare-dns.com/dns-query", "tls://1dot1dot1dot1.cloudflare-dns.com"
+                "1.1.1.1", "1.0.0.1", "2606:4700:4700::1111", "2606:4700:4700::1001"
             ]),
             DNSProfile(id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!, name: "Google", servers: [
-                "8.8.8.8", "8.8.4.4", "2001:4860:4860::8888", "2001:4860:4860::8844",
-                "https://dns.google/dns-query", "tls://dns.google"
+                "8.8.8.8", "8.8.4.4", "2001:4860:4860::8888", "2001:4860:4860::8844"
             ]),
             DNSProfile(id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!, name: "Quad9", servers: [
-                "9.9.9.9", "149.112.112.112", "2620:fe::fe", "2620:fe::9",
-                "https://dns.quad9.net/dns-query", "tls://dns.quad9.net"
+                "9.9.9.9", "149.112.112.112", "2620:fe::fe", "2620:fe::9"
             ]),
             DNSProfile(id: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!, name: "OpenDNS", servers: [
                 "208.67.222.222", "208.67.220.220"
             ]),
             DNSProfile(id: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!, name: "AdGuard", servers: [
-                "94.140.14.14", "94.140.15.15", "2a10:50c0::ad1:ff", "2a10:50c0::ad2:ff",
-                "https://dns.adguard.com/dns-query", "tls://dns.adguard.com"
+                "94.140.14.14", "94.140.15.15", "2a10:50c0::ad1:ff", "2a10:50c0::ad2:ff"
+            ])
+        ,
+            DNSProfile(id: UUID(uuidString: "00000000-0000-0000-0000-000000000006")!, name: "NextDNS", servers: [
+                "45.90.28.0", "45.90.30.0", "2a07:a8c0::", "2a07:a8c1::"
+            ]),
+            DNSProfile(id: UUID(uuidString: "00000000-0000-0000-0000-000000000007")!, name: "CleanBrowsing (Family)", servers: [
+                "185.228.168.168", "185.228.169.168", "2a0d:2a00:1::", "2a0d:2a00:2::"
+            ]),
+            DNSProfile(id: UUID(uuidString: "00000000-0000-0000-0000-000000000008")!, name: "Mullvad", servers: [
+                "194.242.2.2", "194.242.2.3"
+            ]),
+            DNSProfile(id: UUID(uuidString: "00000000-0000-0000-0000-000000000009")!, name: "OpenNIC (example)", servers: [
+                "193.183.98.66", "172.104.136.243"
             ])
         ]
     }
