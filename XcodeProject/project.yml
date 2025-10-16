@@ -50,9 +50,13 @@ targets:
           set -euo pipefail
           HELPER_APP="${BUILT_PRODUCTS_DIR}/DNSChangerHelper"
           if [ -x "$HELPER_APP" ]; then
-            REQ=$(codesign -dr - "$HELPER_APP" 2>/dev/null | sed 's/^designated => //')
-            /usr/libexec/PlistBuddy -c "Delete :SMPrivilegedExecutables:com.pacman.DNSChangerHelper" "${TARGET_BUILD_DIR}/${INFOPLIST_PATH}" || true
-            /usr/libexec/PlistBuddy -c "Add :SMPrivilegedExecutables:com.pacman.DNSChangerHelper string $REQ" "${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
+            REQ="$(/usr/bin/codesign -dr - "$HELPER_APP" 2>/dev/null | /usr/bin/sed 's/^designated => //' || true)"
+            if [ -n "$REQ" ]; then
+              /usr/libexec/PlistBuddy -c "Delete :SMPrivilegedExecutables:com.pacman.DNSChangerHelper" "${TARGET_BUILD_DIR}/${INFOPLIST_PATH}" || true
+              /usr/libexec/PlistBuddy -c "Add :SMPrivilegedExecutables:com.pacman.DNSChangerHelper string $REQ" "${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
+            else
+              echo "Helper not signed; skipping SMPrivilegedExecutables injection."
+            fi
           fi
         basedOnDependencyAnalysis: false
 
