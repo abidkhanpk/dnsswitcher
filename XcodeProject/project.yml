@@ -65,6 +65,7 @@ targets:
     platform: macOS
     sources:
       - path: ../Sources/Helper
+      - path: ../Sources/Shared
     settings:
       base:
         PRODUCT_NAME: DNSChangerHelper
