@@ -34,7 +34,7 @@ targets:
       - path: ../Sources/App
       - path: ../Sources/Shared
     resources:
-      - path: ../Resources
+      - path: ../Resources/config
         type: folder
     settings:
       base:

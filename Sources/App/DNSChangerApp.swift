@@ -6,9 +6,8 @@ struct DNSChangerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        Settings {
-            PreferencesView()
-        }
+        // Use custom preferences window wiring via AppDelegate for LSUIElement menu bar app
+        Settings { EmptyView() }
     }
 }
 

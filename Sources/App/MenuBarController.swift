@@ -122,7 +122,7 @@ final class MenuBarController: NSObject {
     }
 
     @objc private func openPreferences() {
-        NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+        NSApp.sendAction(#selector(AppDelegate.showPreferencesWindow), to: nil, from: nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 

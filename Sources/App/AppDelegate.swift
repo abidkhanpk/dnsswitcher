@@ -3,6 +3,7 @@ import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuController: MenuBarController?
+    private var prefsWC: NSWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hide dock icon if LSUIElement is not set yet
@@ -25,6 +26,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc func showPreferencesWindow() {
+        if prefsWC == nil {
+            let hosting = NSHostingController(rootView: PreferencesView())
+            let window = NSWindow(contentViewController: hosting)
+            window.title = "DNSChanger Preferences"
+            window.styleMask = [.titled, .closable, .miniaturizable]
+            window.setContentSize(NSSize(width: 560, height: 460))
+            window.center()
+            prefsWC = NSWindowController(window: window)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        prefsWC?.showWindow(nil)
+        prefsWC?.window?.makeKeyAndOrderFront(nil)
     }
 
     @objc private func refreshProfiles() {
