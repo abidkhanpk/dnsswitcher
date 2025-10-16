@@ -114,22 +114,14 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
     }
     
     private func normalizeServers(_ servers: [String]) -> [String] {
-    var ips: [String] = []
-    for s in servers {
-    if isIPAddress(s) {
-    if !ips.contains(s) { ips.append(s) }
-    continue
-    }
-    if let host = extractHostname(from: s) {
-    let resolved = resolveHostToIPs(host)
-    for ip in resolved where !ips.contains(ip) {
-    ips.append(ip)
-    }
-    continue
-    }
-    // ignore unknown formats
-    }
-    return ips
+        var ips: [String] = []
+        for raw in servers {
+            let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if isIPAddress(s), !ips.contains(s) {
+                ips.append(s)
+            }
+        }
+        return ips
     }
     
     private func runCommand(_ launchPath: String, _ arguments: [String]) -> (success: Bool, output: String) {
