@@ -105,46 +105,46 @@ final class DNSChangerClient: NSObject {
         guard !ipServers.isEmpty else { completion(false, "No valid IP DNS servers to apply"); return }
         let services = listNetworkServices()
         guard !services.isEmpty else { completion(false, "No network services found"); return }
-        var allOK = true
-        var lastMsg = ""
+
+        // Build a single privileged script to avoid multiple admin prompts
+        let ipsQ = ipServers.map { shellEscape($0) }.joined(separator: " ")
+        var lines: [String] = []
         for svc in services {
-            let args = ["/usr/sbin/networksetup", "-setdnsservers", svc] + ipServers
-            let res = runWithAdmin(args: args)
-            allOK = allOK && res.success
-            lastMsg = res.output
-            if !allOK { break }
+            let svcQ = shellEscape(svc)
+            lines.append("/usr/sbin/networksetup -setdnsservers \(svcQ) \(ipsQ)")
         }
-        // Flush caches for immediate effect
-        _ = runWithAdmin(args: ["/usr/bin/dscacheutil", "-flushcache"]) 
-        _ = runWithAdmin(args: ["/usr/bin/killall", "-HUP", "mDNSResponder"]) 
+        lines.append("/usr/bin/dscacheutil -flushcache")
+        lines.append("/usr/bin/killall -HUP mDNSResponder")
+        let script = "set -e\n" + lines.joined(separator: "\n")
+        let result = runWithAdmin(args: ["/bin/sh", "-c", script])
+
         // Verify active DNS via scutil --dns
         let active = currentDNSServers()
-        let ok = ipServers.contains(where: { active.contains($0) })
-        completion(ok, ok ? "Applied to \(services.count) services (active: \(active.joined(separator: ", ")))" : "Applied but not active; current: \(active.joined(separator: ", "))")
+        let ok = ipServers.contains(where: { active.contains($0) }) && result.success
+        completion(ok, ok ? "Applied to \(services.count) services (active: \(active.joined(separator: ", ")))" : (result.success ? "Applied but not active; current: \(active.joined(separator: ", "))" : result.output))
     }
 
     private func clearDNSViaAdmin(completion: @escaping (Bool, String) -> Void) {
         let services = listNetworkServices()
         guard !services.isEmpty else { completion(false, "No network services found"); return }
-        var allOK = true
-        var lastMsg = ""
+
+        // Build a single privileged script to avoid multiple admin prompts
+        var lines: [String] = []
         for svc in services {
-            let args = ["/usr/sbin/networksetup", "-setdnsservers", svc, "Empty"]
-            let res = runWithAdmin(args: args)
-            allOK = allOK && res.success
-            lastMsg = res.output
-            if !allOK { break }
+            let svcQ = shellEscape(svc)
+            lines.append("/usr/sbin/networksetup -setdnsservers \(svcQ) Empty")
         }
-        _ = runWithAdmin(args: ["/usr/bin/dscacheutil", "-flushcache"]) 
-        _ = runWithAdmin(args: ["/usr/bin/killall", "-HUP", "mDNSResponder"]) 
-        completion(allOK, allOK ? "Cleared on \(services.count) services" : lastMsg)
+        lines.append("/usr/bin/dscacheutil -flushcache")
+        lines.append("/usr/bin/killall -HUP mDNSResponder")
+        let script = "set -e\n" + lines.joined(separator: "\n")
+        let result = runWithAdmin(args: ["/bin/sh", "-c", script])
+        completion(result.success, result.success ? "Cleared on \(services.count) services" : result.output)
     }
 
     private func flushDNSViaAdmin(completion: @escaping (Bool, String) -> Void) {
-        let a = runWithAdmin(args: ["/usr/bin/dscacheutil", "-flushcache"]) 
-        let b = runWithAdmin(args: ["/usr/bin/killall", "-HUP", "mDNSResponder"]) 
-        let ok = a.success && b.success
-        completion(ok, ok ? "Flushed cache" : "Flush error: \(a.output) | \(b.output)")
+        let script = "set -e\n/usr/bin/dscacheutil -flushcache\n/usr/bin/killall -HUP mDNSResponder"
+        let result = runWithAdmin(args: ["/bin/sh", "-c", script])
+        completion(result.success, result.success ? "Flushed cache" : result.output)
     }
 
     private func listNetworkServices() -> [String] {
