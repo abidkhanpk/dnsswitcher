@@ -115,6 +115,8 @@ final class DNSChangerClient: NSObject {
         // Build a single privileged script to avoid multiple admin prompts
         let ipsQ = ipServers.map { shellEscape($0) }.joined(separator: " ")
         var lines: [String] = []
+        // Remove any existing managed Encrypted DNS profiles (from any source)
+        lines.append("/usr/bin/profiles show -type configuration 2>/dev/null | /usr/bin/awk '/Profile identifier:/ {id=$3} /com.apple.dnsSettings.managed/ {if (id) print id}' | while read -r id; do /usr/bin/profiles remove -identifier \"$id\" || true; /usr/bin/profiles -R -p \"$id\" || true; done")
         for svc in services {
             let svcQ = shellEscape(svc)
             lines.append("/usr/sbin/networksetup -setdnsservers \(svcQ) \(ipsQ)")
@@ -140,6 +142,8 @@ final class DNSChangerClient: NSObject {
             let svcQ = shellEscape(svc)
             lines.append("/usr/sbin/networksetup -setdnsservers \(svcQ) Empty")
         }
+        // Remove any existing managed Encrypted DNS profiles (from any source)
+        lines.append("/usr/bin/profiles show -type configuration 2>/dev/null | /usr/bin/awk '/Profile identifier:/ {id=$3} /com.apple.dnsSettings.managed/ {if (id) print id}' | while read -r id; do /usr/bin/profiles remove -identifier \"$id\" || true; /usr/bin/profiles -R -p \"$id\" || true; done")
         lines.append("/usr/bin/dscacheutil -flushcache")
         lines.append("/usr/bin/killall -HUP mDNSResponder")
         let script = "set -e\n" + lines.joined(separator: "\n")
