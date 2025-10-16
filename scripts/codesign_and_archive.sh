@@ -13,7 +13,15 @@ mkdir -p "$BUILD_DIR"
 rm -rf "$BUILD_APP_PATH"
 cp -R "$APP_PATH" "$BUILD_APP_PATH"
 
-# Codesign app with hardened runtime and timestamp
+# Embed helper if present
+HELPER_SRC="DerivedData/Build/Products/Release/DNSChangerHelper"
+HELPER_DST="$BUILD_APP_PATH/Contents/Library/LaunchServices/com.pacman.DNSChangerHelper"
+if [[ -x "$HELPER_SRC" ]]; then
+  mkdir -p "$(dirname "$HELPER_DST")"
+  /bin/cp -f "$HELPER_SRC" "$HELPER_DST"
+fi
+
+# Codesign app and helper with hardened runtime and timestamp if identity provided
 if [[ -z "${DEVELOPER_ID_APP:-}" ]]; then
   echo "DEVELOPER_ID_APP not set; skipping codesign."
   exit 0
@@ -24,8 +32,22 @@ if ! /usr/bin/security find-identity -p codesigning -v | /usr/bin/grep -q "${DEV
   exit 0
 fi
 
+# Sign helper first (required by SMJobBless)
+if [[ -x "$HELPER_DST" ]]; then
+  echo "Codesigning helper at $HELPER_DST with identity: $DEVELOPER_ID_APP"
+  /usr/bin/codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID_APP" "$HELPER_DST"
+fi
+
+# Inject helper's designated requirement into app Info.plist if available
+REQ="$((/usr/bin/codesign -dr - "$HELPER_DST" 2>/dev/null | /usr/bin/sed 's/^designated => //' ) || true)"
+if [[ -n "$REQ" ]]; then
+  /usr/libexec/PlistBuddy -c "Delete :SMPrivilegedExecutables:com.pacman.DNSChangerHelper" "$BUILD_APP_PATH/Contents/Info.plist" || true
+  /usr/libexec/PlistBuddy -c "Add :SMPrivilegedExecutables:com.pacman.DNSChangerHelper string $REQ" "$BUILD_APP_PATH/Contents/Info.plist"
+fi
+
+# Deep sign app bundle
 echo "Codesigning app at $BUILD_APP_PATH with identity: $DEVELOPER_ID_APP"
-/usr/bin/codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID_APP" "$BUILD_APP_PATH"
+/usr/bin/codesign --force --deep --options runtime --timestamp --sign "$DEVELOPER_ID_APP" "$BUILD_APP_PATH"
 
 echo "Codesign verification:"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$BUILD_APP_PATH"

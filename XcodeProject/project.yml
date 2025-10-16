@@ -33,7 +33,9 @@ targets:
     sources:
       - path: ../Sources/App
       - path: ../Sources/Shared
+    resources:
       - path: ../Resources
+        type: folder
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.pacman.DNSChanger
@@ -57,6 +59,21 @@ targets:
             else
               echo "Helper not signed; skipping SMPrivilegedExecutables injection."
             fi
+          fi
+        basedOnDependencyAnalysis: false
+    postBuildScripts:
+      - name: Embed Helper into App Bundle
+        script: |
+          set -euo pipefail
+          APP_CONTENTS="${TARGET_BUILD_DIR}/${PRODUCT_NAME}.app/Contents"
+          HELPER_SRC="${BUILT_PRODUCTS_DIR}/DNSChangerHelper"
+          HELPER_DST="${APP_CONTENTS}/Library/LaunchServices/com.pacman.DNSChangerHelper"
+          if [ -x "$HELPER_SRC" ]; then
+            mkdir -p "$(dirname "$HELPER_DST")"
+            /bin/cp -f "$HELPER_SRC" "$HELPER_DST"
+            /bin/chmod 755 "$HELPER_DST"
+          else
+            echo "Helper executable not found at $HELPER_SRC; skipping embed."
           fi
         basedOnDependencyAnalysis: false
 
