@@ -24,11 +24,13 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
             for svc in services {
                 _ = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc, "Empty"])
             }
+            // Remove any existing managed DNS profile before installing new one
+            _ = removeDoHProfile()
             let (ok, msg) = installDoHProfile(serverURL: doh)
             // Flush caches
             _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"]) 
             _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"]) 
-            reply(ok, ok ? "Encrypted DNS (DoH) configured" : "Failed to configure DoH: \(msg)")
+            reply(ok, ok ? "Encrypted DNS (DoH) configured: \(doh)" : "Failed to configure DoH: \(msg)")
             return
         }
         if let dot = dotHosts.first {
@@ -36,11 +38,13 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
             for svc in services {
                 _ = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc, "Empty"])
             }
+            // Remove any existing managed DNS profile before installing new one
+            _ = removeDoHProfile()
             let (ok, msg) = installDoTProfile(serverName: dot)
             // Flush caches
             _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"]) 
             _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"]) 
-            reply(ok, ok ? "Encrypted DNS (DoT) configured" : "Failed to configure DoT: \(msg)")
+            reply(ok, ok ? "Encrypted DNS (DoT) configured: \(dot)" : "Failed to configure DoT: \(msg)")
             return
         }
         if !ipServers.isEmpty {

@@ -59,19 +59,10 @@ final class MenuBarController: NSObject {
 
         menu.addItem(NSMenuItem.separator())
 
-        // Actions
-        let applyItem = NSMenuItem(title: "Apply DNS", action: #selector(applyDNS), keyEquivalent: "")
-        applyItem.target = self
-        applyItem.isEnabled = activeProfileName != nil
-        menu.addItem(applyItem)
-
-        let clearItem = NSMenuItem(title: "Clear DNS", action: #selector(clearDNS), keyEquivalent: "")
-        clearItem.target = self
-        menu.addItem(clearItem)
-
-        let flushItem = NSMenuItem(title: "Flush Cache", action: #selector(flushCache), keyEquivalent: "")
-        flushItem.target = self
-        menu.addItem(flushItem)
+        // Disable item to use default DNS
+        let disableItem = NSMenuItem(title: "Use Default DNS (Disable)", action: #selector(disableDNS), keyEquivalent: "")
+        disableItem.target = self
+        menu.addItem(disableItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -106,22 +97,9 @@ final class MenuBarController: NSObject {
         }
     }
 
-    @objc private func applyDNS() {
-        guard let name = activeProfileName, let profile = profiles.first(where: { $0.name == name }) else { return }
-        DNSChangerClient.shared.applyDNS(servers: profile.servers) { success, message in
-            self.notifyUser(title: success ? "DNS Applied" : "Failed", informative: message)
-        }
-    }
-
-    @objc private func clearDNS() {
+    @objc private func disableDNS() {
         DNSChangerClient.shared.clearDNS { success, message in
-            self.notifyUser(title: success ? "DNS Cleared" : "Failed", informative: message)
-        }
-    }
-
-    @objc private func flushCache() {
-        DNSChangerClient.shared.flushDNSCache { success, message in
-            self.notifyUser(title: success ? "Cache Flushed" : "Failed", informative: message)
+            self.notifyUser(title: success ? "Default DNS Enabled" : "Failed", informative: message)
         }
     }
 
