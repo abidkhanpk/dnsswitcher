@@ -101,18 +101,26 @@ final class DNSChangerClient: NSObject {
     // MARK: - Fallback admin operations (without helper)
 
     private func applyDNSViaAdmin(servers: [String], completion: @escaping (Bool, String) -> Void) {
+        let ipServers = servers.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { isIPAddress($0) }
+        guard !ipServers.isEmpty else { completion(false, "No valid IP DNS servers to apply"); return }
         let services = listNetworkServices()
         guard !services.isEmpty else { completion(false, "No network services found"); return }
         var allOK = true
         var lastMsg = ""
         for svc in services {
-            let args = ["/usr/sbin/networksetup", "-setdnsservers", svc] + servers
+            let args = ["/usr/sbin/networksetup", "-setdnsservers", svc] + ipServers
             let res = runWithAdmin(args: args)
             allOK = allOK && res.success
             lastMsg = res.output
             if !allOK { break }
         }
-        completion(allOK, allOK ? "Applied to \(services.count) services" : lastMsg)
+        // Flush caches for immediate effect
+        _ = runWithAdmin(args: ["/usr/bin/dscacheutil", "-flushcache"]) 
+        _ = runWithAdmin(args: ["/usr/bin/killall", "-HUP", "mDNSResponder"]) 
+        // Verify active DNS via scutil --dns
+        let active = currentDNSServers()
+        let ok = ipServers.contains(where: { active.contains($0) })
+        completion(ok, ok ? "Applied to \(services.count) services (active: \(active.joined(separator: ", ")))" : "Applied but not active; current: \(active.joined(separator: ", "))")
     }
 
     private func clearDNSViaAdmin(completion: @escaping (Bool, String) -> Void) {
@@ -127,6 +135,8 @@ final class DNSChangerClient: NSObject {
             lastMsg = res.output
             if !allOK { break }
         }
+        _ = runWithAdmin(args: ["/usr/bin/dscacheutil", "-flushcache"]) 
+        _ = runWithAdmin(args: ["/usr/bin/killall", "-HUP", "mDNSResponder"]) 
         completion(allOK, allOK ? "Cleared on \(services.count) services" : lastMsg)
     }
 
@@ -165,6 +175,36 @@ final class DNSChangerClient: NSObject {
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         let out = String(data: data, encoding: .utf8) ?? ""
         return (task.terminationStatus == 0, out)
+    }
+
+    private func isIPAddress(_ s: String) -> Bool {
+        let ipv4 = "^((25[0-5]|2[0-4]\\d|[0-1]?\\d?\\d)(\\.|$)){4}$"
+        let ipv6 = "^[0-9a-fA-F:]+$"
+        return s.range(of: ipv4, options: .regularExpression) != nil || s.range(of: ipv6, options: .regularExpression) != nil
+    }
+
+    private func currentDNSServers() -> [String] {
+        let task = Process()
+        task.launchPath = "/usr/sbin/scutil"
+        task.arguments = ["--dns"]
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = pipe
+        do { try task.run() } catch { return [] }
+        task.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let out = String(data: data, encoding: .utf8) ?? ""
+        var servers: [String] = []
+        out.components(separatedBy: "\n").forEach { line in
+            let t = line.trimmingCharacters(in: .whitespaces)
+            if t.hasPrefix("nameserver[") {
+                if let part = t.split(separator: ":").dropFirst().first {
+                    let ip = part.trimmingCharacters(in: .whitespaces)
+                    if !servers.contains(ip) { servers.append(ip) }
+                }
+            }
+        }
+        return servers
     }
 
     private func shellEscape(_ s: String) -> String {
