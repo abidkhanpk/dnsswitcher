@@ -69,32 +69,38 @@ final class DNSChangerClient: NSObject {
     // MARK: - Public API (with helper fallback)
 
     func applyDNS(servers: [String], completion: @escaping (Bool, String) -> Void) {
-        if let proxy = getConnection().remoteObjectProxyWithErrorHandler({ _ in
-            self.applyDNSViaAdmin(servers: servers, completion: completion)
-        }) as? DNSChangerHelperXPCProtocol {
-            proxy.applyDNS(servers, withReply: completion)
-        } else {
-            applyDNSViaAdmin(servers: servers, completion: completion)
+        ensureHelperBlessed { _ in
+            if let proxy = self.getConnection().remoteObjectProxyWithErrorHandler({ _ in
+                self.applyDNSViaAdmin(servers: servers, completion: completion)
+            }) as? DNSChangerHelperXPCProtocol {
+                proxy.applyDNS(servers, withReply: completion)
+            } else {
+                self.applyDNSViaAdmin(servers: servers, completion: completion)
+            }
         }
     }
 
     func clearDNS(completion: @escaping (Bool, String) -> Void) {
-        if let proxy = getConnection().remoteObjectProxyWithErrorHandler({ _ in
-            self.clearDNSViaAdmin(completion: completion)
-        }) as? DNSChangerHelperXPCProtocol {
-            proxy.clearDNS(withReply: completion)
-        } else {
-            clearDNSViaAdmin(completion: completion)
+        ensureHelperBlessed { _ in
+            if let proxy = self.getConnection().remoteObjectProxyWithErrorHandler({ _ in
+                self.clearDNSViaAdmin(completion: completion)
+            }) as? DNSChangerHelperXPCProtocol {
+                proxy.clearDNS(withReply: completion)
+            } else {
+                self.clearDNSViaAdmin(completion: completion)
+            }
         }
     }
 
     func flushDNSCache(completion: @escaping (Bool, String) -> Void) {
-        if let proxy = getConnection().remoteObjectProxyWithErrorHandler({ _ in
-            self.flushDNSViaAdmin(completion: completion)
-        }) as? DNSChangerHelperXPCProtocol {
-            proxy.flushDNSCache(withReply: completion)
-        } else {
-            flushDNSViaAdmin(completion: completion)
+        ensureHelperBlessed { _ in
+            if let proxy = self.getConnection().remoteObjectProxyWithErrorHandler({ _ in
+                self.flushDNSViaAdmin(completion: completion)
+            }) as? DNSChangerHelperXPCProtocol {
+                proxy.flushDNSCache(withReply: completion)
+            } else {
+                self.flushDNSViaAdmin(completion: completion)
+            }
         }
     }
 
