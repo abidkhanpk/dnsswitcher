@@ -351,26 +351,21 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
 
     // MARK: - SystemConfiguration DNS control (system-wide)
 
-    private func withSCPreferences<T>(_ body: (SCPreferences) -> T?) -> (Bool, T?, String) {
+    private func withSCPreferences(_ body: (SCPreferences) -> Bool) -> (Bool, String) {
         guard let prefs = SCPreferencesCreate(nil, "com.pacman.DNSChanger" as CFString, nil) else {
-            return (false, nil, "SCPreferencesCreate failed")
+            return (false, "SCPreferencesCreate failed")
         }
-        if let result = body(prefs) {
-            if !SCPreferencesCommitChanges(prefs) {
-                return (false, nil, "SCPreferencesCommitChanges failed")
-            }
-            if !SCPreferencesApplyChanges(prefs) {
-                return (false, nil, "SCPreferencesApplyChanges failed")
-            }
-            return (true, result, "")
-        }
-        return (false, nil, "SCPreferences body failed")
+        let ok = body(prefs)
+        if !ok { return (false, "No DNS services updated") }
+        if !SCPreferencesCommitChanges(prefs) { return (false, "SCPreferencesCommitChanges failed") }
+        if !SCPreferencesApplyChanges(prefs) { return (false, "SCPreferencesApplyChanges failed") }
+        return (true, "")
     }
 
     private func setDNSServersUsingSC(_ addresses: [String]) -> (Bool, String) {
-        let (ok, _, msg) = withSCPreferences { prefs in
-            guard let set = SCNetworkSetCopyCurrent(prefs) else { return nil }
-            guard let services = SCNetworkSetCopyServices(set) as? [SCNetworkService] else { return nil }
+        return withSCPreferences { prefs in
+            guard let set = SCNetworkSetCopyCurrent(prefs) else { return false }
+            guard let services = SCNetworkSetCopyServices(set) as? [SCNetworkService] else { return false }
             var touched = false
             for svc in services {
                 if let proto = SCNetworkServiceCopyProtocol(svc, kSCNetworkProtocolTypeDNS) {
@@ -381,15 +376,14 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
                     }
                 }
             }
-            return touched ? true : nil
+            return touched
         }
-        return (ok, msg)
     }
 
     private func clearDNSServersUsingSC() -> (Bool, String) {
-        let (ok, _, msg) = withSCPreferences { prefs in
-            guard let set = SCNetworkSetCopyCurrent(prefs) else { return nil }
-            guard let services = SCNetworkSetCopyServices(set) as? [SCNetworkService] else { return nil }
+        return withSCPreferences { prefs in
+            guard let set = SCNetworkSetCopyCurrent(prefs) else { return false }
+            guard let services = SCNetworkSetCopyServices(set) as? [SCNetworkService] else { return false }
             var touched = false
             for svc in services {
                 if let proto = SCNetworkServiceCopyProtocol(svc, kSCNetworkProtocolTypeDNS) {
@@ -399,8 +393,7 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
                     }
                 }
             }
-            return touched ? true : nil
+            return touched
         }
-        return (ok, msg)
     }
 }
