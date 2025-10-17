@@ -22,39 +22,30 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         // Prefer Encrypted DNS (DoH/DoT) over plain IP when present
         if let doh = dohURLs.first {
             // Clear any per-service IP DNS so managed profile takes effect
-            for svc in services {
-                _ = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc, "Empty"])
-            }
-            // Remove any existing managed DNS profile before installing new one (from any source)
+            for svc in services { _ = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc, "Empty"]) }
+            // Remove any existing managed DNS profiles before installing new one
             removeAllManagedDNSProfiles()
             let (ok, msg) = installDoHProfile(serverURL: doh)
-            // Flush caches
-            _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"]) 
-            _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"]) 
+            _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"])
+            _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"])
             reply(ok, ok ? "Encrypted DNS (DoH) configured: \(doh)" : "Failed to configure DoH: \(msg)")
             return
         }
         if let dot = dotHosts.first {
-            // Clear any per-service IP DNS so managed profile takes effect
-            for svc in services {
-                _ = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc, "Empty"])
-            }
-            // Remove any existing managed DNS profile before installing new one (from any source)
+            for svc in services { _ = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc, "Empty"]) }
             removeAllManagedDNSProfiles()
             let (ok, msg) = installDoTProfile(serverName: dot)
-            // Flush caches
-            _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"]) 
-            _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"]) 
+            _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"])
+            _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"])
             reply(ok, ok ? "Encrypted DNS (DoT) configured: \(dot)" : "Failed to configure DoT: \(msg)")
             return
         }
         if !ipServers.isEmpty {
-            // Remove any existing encrypted DNS profile to avoid conflicts
             removeAllManagedDNSProfiles()
             let (okSet, msgSet) = setDNSServersUsingSC(ipServers)
             if !okSet { reply(false, "Failed to set DNS: \(msgSet)"); return }
-            _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"]) 
-            _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"]) 
+            _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"])
+            _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"])
             let scutil = runCommand("/usr/sbin/scutil", ["--dns"])
             if scutil.success {
                 let active = scutil.output
@@ -76,15 +67,11 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
     }
 
     func clearDNS(withReply reply: @escaping (Bool, String) -> Void) {
-        // Clear via SystemConfiguration for all services
         let (okClr, msgClr) = clearDNSServersUsingSC()
-        if !okClr {
-            reply(false, "Failed to clear DNS: \(msgClr)")
-            return
-        }
+        if !okClr { reply(false, "Failed to clear DNS: \(msgClr)"); return }
         removeAllManagedDNSProfiles()
-        _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"]) 
-        _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"]) 
+        _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"])
+        _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"])
         reply(true, "Cleared system-wide and removed encrypted DNS (if any)")
     }
 
@@ -103,58 +90,50 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && !$0.hasPrefix("An asterisk") && !$0.hasPrefix("*") }
     }
-    
+
     private func isIPAddress(_ s: String) -> Bool {
-    let ipv4Pattern = "^((25[0-5]|2[0-4]\\d|[0-1]?\\d?\\d)(\\.|$)){4}$"
-    let ipv6Pattern = "^[0-9a-fA-F:]+$"
-    return s.range(of: ipv4Pattern, options: .regularExpression) != nil || s.range(of: ipv6Pattern, options: .regularExpression) != nil
+        let ipv4Pattern = "^((25[0-5]|2[0-4]\\d|[0-1]?\\d?\\d)(\\.|$)){4}$"
+        let ipv6Pattern = "^[0-9a-fA-F:]+$"
+        return s.range(of: ipv4Pattern, options: .regularExpression) != nil || s.range(of: ipv6Pattern, options: .regularExpression) != nil
     }
-    
+
     private func extractHostname(from s: String) -> String? {
-    if let comp = URLComponents(string: s), let host = comp.host, !host.isEmpty {
-    return host
+        if let comp = URLComponents(string: s), let host = comp.host, !host.isEmpty { return host }
+        if !isIPAddress(s), s.contains(".") { return s }
+        return nil
     }
-    if !isIPAddress(s), s.contains(".") {
-    return s
-    }
-    return nil
-    }
-    
+
     private func resolveHostToIPs(_ host: String) -> [String] {
-    var results: [String] = []
-    var hints = addrinfo(ai_flags: AI_DEFAULT, ai_family: AF_UNSPEC, ai_socktype: SOCK_DGRAM, ai_protocol: 0, ai_addrlen: 0, ai_canonname: nil, ai_addr: nil, ai_next: nil)
-    var res: UnsafeMutablePointer<addrinfo>?
-    let status = getaddrinfo(host, nil, &hints, &res)
-    if status == 0, let first = res {
-    var ptr: UnsafeMutablePointer<addrinfo>? = first
-    while let ai = ptr?.pointee {
-    if let sa = ai.ai_addr {
-    var buffer = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-    let fam = sa.pointee.sa_family
-    if fam == sa_family_t(AF_INET) || fam == sa_family_t(AF_INET6) {
-    let err = getnameinfo(sa, socklen_t(ai.ai_addrlen), &buffer, socklen_t(buffer.count), nil, 0, NI_NUMERICHOST)
-    if err == 0 {
-    let ip = String(cString: buffer)
-    if !results.contains(ip) {
-    results.append(ip)
+        var results: [String] = []
+        var hints = addrinfo(ai_flags: AI_DEFAULT, ai_family: AF_UNSPEC, ai_socktype: SOCK_DGRAM, ai_protocol: 0, ai_addrlen: 0, ai_canonname: nil, ai_addr: nil, ai_next: nil)
+        var res: UnsafeMutablePointer<addrinfo>?
+        let status = getaddrinfo(host, nil, &hints, &res)
+        if status == 0, let first = res {
+            var ptr: UnsafeMutablePointer<addrinfo>? = first
+            while let ai = ptr?.pointee {
+                if let sa = ai.ai_addr {
+                    var buffer = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                    let fam = sa.pointee.sa_family
+                    if fam == sa_family_t(AF_INET) || fam == sa_family_t(AF_INET6) {
+                        let err = getnameinfo(sa, socklen_t(ai.ai_addrlen), &buffer, socklen_t(buffer.count), nil, 0, NI_NUMERICHOST)
+                        if err == 0 {
+                            let ip = String(cString: buffer)
+                            if !results.contains(ip) { results.append(ip) }
+                        }
+                    }
+                }
+                ptr = ai.ai_next
+            }
+            freeaddrinfo(first)
+        }
+        return results
     }
-    }
-    }
-    }
-    ptr = ai.ai_next
-    }
-    freeaddrinfo(first)
-    }
-    return results
-    }
-    
+
     private func normalizeServers(_ servers: [String]) -> [String] {
         var ips: [String] = []
         for raw in servers {
             let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            if isIPAddress(s), !ips.contains(s) {
-                ips.append(s)
-            }
+            if isIPAddress(s), !ips.contains(s) { ips.append(s) }
         }
         return ips
     }
@@ -222,19 +201,17 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
           <string>\(uuid2)</string>\n
           <key>PayloadVersion</key>\n
           <integer>1</integer>\n
+          <key>PayloadScope</key>\n
+          <string>System</string>\n
         </dict>\n
         </plist>\n
         """
         let path = "/tmp/dnschanger_encrypted_dns.mobileconfig"
-        do {
-            try profile.write(toFile: path, atomically: true, encoding: .utf8)
-        } catch {
-            return (false, "Failed to write profile: \(error)")
-        }
-        let r1 = runCommand("/usr/bin/profiles", ["install", "-type", "configuration", "-input", path])
-        if r1.success { return (true, r1.output) }
+        do { try profile.write(toFile: path, atomically: true, encoding: .utf8) } catch { return (false, "Failed to write profile: \(error)") }
+        let r1 = runCommand("/usr/bin/profiles", ["install", "-type", "configuration", "-path", path])
+        if r1.success { if verifyManagedDNSInstalled() { return (true, r1.output) } }
         let r2 = runCommand("/usr/bin/profiles", ["-I", "-F", path])
-        if r2.success { return (true, r2.output) }
+        if r2.success { if verifyManagedDNSInstalled() { return (true, r2.output) } }
         return (false, r1.output + "\n" + r2.output)
     }
 
@@ -278,19 +255,17 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
           <string>\(uuid2)</string>\n
           <key>PayloadVersion</key>\n
           <integer>1</integer>\n
+          <key>PayloadScope</key>\n
+          <string>System</string>\n
         </dict>\n
         </plist>\n
         """
         let path = "/tmp/dnschanger_encrypted_dns.mobileconfig"
-        do {
-            try profile.write(toFile: path, atomically: true, encoding: .utf8)
-        } catch {
-            return (false, "Failed to write profile: \(error)")
-        }
-        let r1 = runCommand("/usr/bin/profiles", ["install", "-type", "configuration", "-input", path])
-        if r1.success { return (true, r1.output) }
+        do { try profile.write(toFile: path, atomically: true, encoding: .utf8) } catch { return (false, "Failed to write profile: \(error)") }
+        let r1 = runCommand("/usr/bin/profiles", ["install", "-type", "configuration", "-path", path])
+        if r1.success { if verifyManagedDNSInstalled() { return (true, r1.output) } }
         let r2 = runCommand("/usr/bin/profiles", ["-I", "-F", path])
-        if r2.success { return (true, r2.output) }
+        if r2.success { if verifyManagedDNSInstalled() { return (true, r2.output) } }
         return (false, r1.output + "\n" + r2.output)
     }
 
@@ -315,9 +290,7 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
                 continue
             }
             if line.contains("com.apple.dnsSettings.managed") {
-                if let id = currentID, !ids.contains(id) {
-                    ids.append(id)
-                }
+                if let id = currentID, !ids.contains(id) { ids.append(id) }
             }
         }
         return ids
@@ -330,7 +303,13 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
             _ = runCommand("/usr/bin/profiles", ["-R", "-p", id])
         }
     }
-    
+
+    private func verifyManagedDNSInstalled() -> Bool {
+        let ids = listManagedDNSProfileIdentifiers()
+        // Accept if our identifier is present, or any managed DNS profile exists
+        return ids.contains(dohProfileIdentifier) || !ids.isEmpty
+    }
+
     private func runCommand(_ launchPath: String, _ arguments: [String]) -> (success: Bool, output: String) {
         let task = Process()
         task.launchPath = launchPath
@@ -338,11 +317,7 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         let pipe = Pipe()
         task.standardOutput = pipe
         task.standardError = pipe
-        do {
-            try task.run()
-        } catch {
-            return (false, "Failed to run: \(error)")
-        }
+        do { try task.run() } catch { return (false, "Failed to run: \(error)") }
         task.waitUntilExit()
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         let out = String(data: data, encoding: .utf8) ?? ""
@@ -371,9 +346,7 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
                 if let proto = SCNetworkServiceCopyProtocol(svc, kSCNetworkProtocolTypeDNS) {
                     var cfg: [String: Any] = [:]
                     cfg[kSCPropNetDNSServerAddresses as String] = addresses
-                    if SCNetworkProtocolSetConfiguration(proto, cfg as CFDictionary) {
-                        touched = true
-                    }
+                    if SCNetworkProtocolSetConfiguration(proto, cfg as CFDictionary) { touched = true }
                 }
             }
             return touched
@@ -388,9 +361,7 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
             for svc in services {
                 if let proto = SCNetworkServiceCopyProtocol(svc, kSCNetworkProtocolTypeDNS) {
                     let empty: [String: Any] = [:]
-                    if SCNetworkProtocolSetConfiguration(proto, empty as CFDictionary) {
-                        touched = true
-                    }
+                    if SCNetworkProtocolSetConfiguration(proto, empty as CFDictionary) { touched = true }
                 }
             }
             return touched
