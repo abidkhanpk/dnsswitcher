@@ -78,7 +78,9 @@ final class DNSChangerClient: NSObject {
                 proxy.applyDNS(servers) { success, message in
                     if success, message.hasPrefix("PROFILE_CREATED:") {
                         let path = String(message.dropFirst("PROFILE_CREATED:".count))
-                        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                        DispatchQueue.main.async {
+                            NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                        }
                         completion(true, "Profile created. Please approve installation in System Settings.")
                     } else {
                         completion(success, message)
@@ -120,7 +122,9 @@ final class DNSChangerClient: NSObject {
         if let doh = dohURLs.first {
             let (ok, path) = installDoHProfileViaAdmin(serverURL: doh)
             if ok {
-                NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                DispatchQueue.main.async {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                }
                 completion(true, "Profile created. Please approve installation in System Settings.")
             } else {
                 completion(false, "Failed to create DoH profile.")
@@ -131,7 +135,9 @@ final class DNSChangerClient: NSObject {
         if let dot = dotHosts.first {
             let (ok, path) = installDoTProfileViaAdmin(serverName: dot)
             if ok {
-                NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                DispatchQueue.main.async {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                }
                 completion(true, "Profile created. Please approve installation in System Settings.")
             } else {
                 completion(false, "Failed to create DoT profile.")

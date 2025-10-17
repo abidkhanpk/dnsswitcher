@@ -19,14 +19,10 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         }
         let (ipServers, dohURLs, dotHosts) = classifyServers(servers)
 
-        // Prefer Encrypted DNS (DoH/DoT) over plain IP when present
         if let doh = dohURLs.first {
-            // Remove any existing managed DNS profiles before installing new one
             removeAllManagedDNSProfiles()
-            // Install with bootstrap addresses so resolution does not depend on existing DNS
             let (ok, msg) = installDoHProfile(serverURL: doh)
             if ok {
-                // Now clear per-service IP DNS so managed profile takes effect
                 for svc in services { _ = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc, "Empty"]) }
                 _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"]) ; _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"]) 
             }
@@ -167,13 +163,13 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
     private func installDoHProfile(serverURL: String) -> (Bool, String) {
         let uuid1 = UUID().uuidString
         let uuid2 = UUID().uuidString
-        // Bootstrap addresses for the DoH host
         var bootstrap: [String] = []
         if let host = URLComponents(string: serverURL)?.host { bootstrap = resolveHostToIPs(host) }
         let bootstrapXML: String = bootstrap.isEmpty ? "" : ("\n                <key>ServerAddresses</key>\n                <array>\n" + bootstrap.map { "                  <string>\($0)</string>" }.joined(separator: "\n") + "\n                </array>\n")
         let profile = """
         <?xml version=\"1.0\" encoding=\"UTF-8\"?>
-        <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n
+        <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
+
         <plist version=\"1.0\">\n
         <dict>\n
           <key>PayloadContent</key>\n
@@ -225,7 +221,8 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         let bootstrapXML: String = bootstrap.isEmpty ? "" : ("\n                <key>ServerAddresses</key>\n                <array>\n" + bootstrap.map { "                  <string>\($0)</string>" }.joined(separator: "\n") + "\n                </array>\n")
         let profile = """
         <?xml version=\"1.0\" encoding=\"UTF-8\"?>
-        <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n
+        <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
+
         <plist version=\"1.0\">\n
         <dict>\n
           <key>PayloadContent</key>\n
@@ -278,7 +275,6 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
     }
 
     private func listManagedDNSProfileIdentifiers() -> [String] {
-        // Query system-level profiles explicitly (-user root) to avoid only seeing user-scoped profiles
         let res = runCommand("/usr/bin/profiles", ["show", "-type", "configuration", "-user", "root"])
         guard res.success else { return [] }
         var ids: [String] = []
@@ -307,7 +303,6 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
 
     private func verifyManagedDNSInstalled() -> Bool {
         let ids = listManagedDNSProfileIdentifiers()
-        // Accept if our identifier is present, or any managed DNS profile exists
         return ids.contains(dohProfileIdentifier) || !ids.isEmpty
     }
 
@@ -324,8 +319,6 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         let out = String(data: data, encoding: .utf8) ?? ""
         return (task.terminationStatus == 0, out)
     }
-
-    // MARK: - SystemConfiguration DNS control (system-wide)
 
     private func withSCPreferences(_ body: (SCPreferences) -> Bool) -> (Bool, String) {
         guard let prefs = SCPreferencesCreate(nil, "com.pacman.DNSChanger" as CFString, nil) else {
