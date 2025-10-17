@@ -30,7 +30,7 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
                 for svc in services { _ = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc, "Empty"]) }
                 _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"]) ; _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"]) 
             }
-            reply(ok, ok ? "Encrypted DNS (DoH) configured: \(doh)" : "Failed to configure DoH: \(msg)")
+            reply(ok, msg)
             return
         }
         if let dot = dotHosts.first {
@@ -40,7 +40,7 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
                 for svc in services { _ = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc, "Empty"]) }
                 _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"]) ; _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"]) 
             }
-            reply(ok, ok ? "Encrypted DNS (DoT) configured: \(dot)" : "Failed to configure DoT: \(msg)")
+            reply(ok, msg)
             return
         }
         if !ipServers.isEmpty {
@@ -215,11 +215,7 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         """
         let path = "/tmp/dnschanger_encrypted_dns.mobileconfig"
         do { try profile.write(toFile: path, atomically: true, encoding: .utf8) } catch { return (false, "Failed to write profile: \(error)") }
-        let r1 = runCommand("/usr/bin/profiles", ["install", "-type", "configuration", "-path", path])
-        if r1.success { if verifyManagedDNSInstalled() { return (true, r1.output) } }
-        let r2 = runCommand("/usr/bin/profiles", ["-I", "-F", path])
-        if r2.success { if verifyManagedDNSInstalled() { return (true, r2.output) } }
-        return (false, r1.output + "\n" + r2.output)
+        return (true, "PROFILE_CREATED:\(path)")
     }
 
     private func installDoTProfile(serverName: String) -> (Bool, String) {
@@ -271,11 +267,7 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         """
         let path = "/tmp/dnschanger_encrypted_dns.mobileconfig"
         do { try profile.write(toFile: path, atomically: true, encoding: .utf8) } catch { return (false, "Failed to write profile: \(error)") }
-        let r1 = runCommand("/usr/bin/profiles", ["install", "-type", "configuration", "-path", path])
-        if r1.success { if verifyManagedDNSInstalled() { return (true, r1.output) } }
-        let r2 = runCommand("/usr/bin/profiles", ["-I", "-F", path])
-        if r2.success { if verifyManagedDNSInstalled() { return (true, r2.output) } }
-        return (false, r1.output + "\n" + r2.output)
+        return (true, "PROFILE_CREATED:\(path)")
     }
 
     private func removeDoHProfile() -> Bool {
