@@ -110,13 +110,37 @@ final class DNSChangerClient: NSObject {
         let (ipServers, dohURLs, dotHosts) = classifyServers(servers)
 
         if let doh = dohURLs.first {
+            _ = runWithAdmin(args: ["/bin/sh", "-c", "/usr/bin/profiles show -type configuration 2>/dev/null | /usr/bin/awk '/Profile identifier:/ {id=$3} /com.apple.dnsSettings.managed/ {if (id) print id}' | while read -r id; do /usr/bin/profiles remove -identifier \"$id\" || true; /usr/bin/profiles -R -p \"$id\" || true; done"])            
             let (ok, message) = installDoHProfileViaAdmin(serverURL: doh)
+            if ok {
+                let services = listNetworkServices()
+                var lines: [String] = []
+                for svc in services {
+                    let svcQ = shellEscape(svc)
+                    lines.append("/usr/sbin/networksetup -setdnsservers \(svcQ) Empty")
+                }
+                lines.append("/usr/bin/dscacheutil -flushcache")
+                lines.append("/usr/bin/killall -HUP mDNSResponder")
+                _ = runWithAdmin(args: ["/bin/sh", "-c", lines.joined(separator: "\n")])
+            }
             completion(ok, message)
             return
         }
 
         if let dot = dotHosts.first {
+            _ = runWithAdmin(args: ["/bin/sh", "-c", "/usr/bin/profiles show -type configuration 2>/dev/null | /usr/bin/awk '/Profile identifier:/ {id=$3} /com.apple.dnsSettings.managed/ {if (id) print id}' | while read -r id; do /usr/bin/profiles remove -identifier \"$id\" || true; /usr/bin/profiles -R -p \"$id\" || true; done"])            
             let (ok, message) = installDoTProfileViaAdmin(serverName: dot)
+            if ok {
+                let services = listNetworkServices()
+                var lines: [String] = []
+                for svc in services {
+                    let svcQ = shellEscape(svc)
+                    lines.append("/usr/sbin/networksetup -setdnsservers \(svcQ) Empty")
+                }
+                lines.append("/usr/bin/dscacheutil -flushcache")
+                lines.append("/usr/bin/killall -HUP mDNSResponder")
+                _ = runWithAdmin(args: ["/bin/sh", "-c", lines.joined(separator: "\n")])
+            }
             completion(ok, message)
             return
         }
@@ -262,6 +286,10 @@ final class DNSChangerClient: NSObject {
                         <string>HTTPS</string>
                         <key>ServerURL</key>
                         <string>\(serverURL)</string>
+                        <key>MatchDomains</key>
+                        <array>
+                          <string></string>
+                        </array>
                     </dict>
                     <key>PayloadDisplayName</key>
                     <string>DNSChanger Encrypted DNS</string>
@@ -315,6 +343,10 @@ final class DNSChangerClient: NSObject {
                         <string>TLS</string>
                         <key>ServerName</key>
                         <string>\(serverName)</string>
+                        <key>MatchDomains</key>
+                        <array>
+                          <string></string>
+                        </array>
                     </dict>
                     <key>PayloadDisplayName</key>
                     <string>DNSChanger Encrypted DNS</string>

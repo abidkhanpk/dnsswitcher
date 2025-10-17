@@ -179,8 +179,7 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
                 <key>DNSProtocol</key>\n
                 <string>HTTPS</string>\n
                 <key>ServerURL</key>\n
-                <string>\(serverURL)</string>\n\(bootstrapXML)
-              </dict>\n
+                <string>\(serverURL)</string>\n\(bootstrapXML)                <key>MatchDomains</key>\n                <array>\n                  <string></string>\n                </array>\n              </dict>\n
               <key>PayloadDisplayName</key>\n
               <string>\(dohProfileDisplayName)</string>\n
               <key>PayloadIdentifier</key>\n
@@ -232,8 +231,7 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
                 <key>DNSProtocol</key>\n
                 <string>TLS</string>\n
                 <key>ServerName</key>\n
-                <string>\(serverName)</string>\n\(bootstrapXML)
-              </dict>\n
+                <string>\(serverName)</string>\n\(bootstrapXML)                <key>MatchDomains</key>\n                <array>\n                  <string></string>\n                </array>\n              </dict>\n
               <key>PayloadDisplayName</key>\n
               <string>\(dohProfileDisplayName)</string>\n
               <key>PayloadIdentifier</key>\n
