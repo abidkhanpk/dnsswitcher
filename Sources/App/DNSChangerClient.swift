@@ -108,78 +108,83 @@ final class DNSChangerClient: NSObject {
 
     private func applyDNSViaAdmin(servers: [String], completion: @escaping (Bool, String) -> Void) {
         let (ipServers, dohURLs, dotHosts) = classifyServers(servers)
+        let proxyManager = ProxyManager.shared
 
         if let doh = dohURLs.first {
-            // Remove existing profiles
-            _ = runWithAdmin(args: ["/bin/sh", "-c", "/usr/bin/profiles show -type configuration 2>/dev/null | /usr/bin/awk '/Profile identifier:/ {id=$3} /com.apple.dnsSettings.managed/ {if (id) print id}' | while read -r id; do /usr/bin/profiles remove -identifier \"$id\" || true; done"])
-            
-            // Install DoH profile
-            let (ok, message) = installDoHProfileViaAdmin(serverURL: doh)
-            if !ok {
-                completion(false, "Failed to install DoH profile: \(message)")
-                return
-            }
-            
-            // Set bootstrap IPs if available
-            if let host = URLComponents(string: doh)?.host {
-                let bootstrapIPs = resolveHostToIPs(host)
-                if !bootstrapIPs.isEmpty {
-                    let services = listNetworkServices()
-                    let ipsQ = bootstrapIPs.map { shellEscape($0) }.joined(separator: " ")
-                    var lines: [String] = []
-                    for svc in services {
-                        let svcQ = shellEscape(svc)
-                        lines.append("/usr/sbin/networksetup -setdnsservers \(svcQ) \(ipsQ)")
-                    }
-                    lines.append("/usr/bin/dscacheutil -flushcache")
-                    lines.append("/usr/bin/killall -HUP mDNSResponder")
-                    lines.append("/bin/sleep 1")
-                    _ = runWithAdmin(args: ["/bin/sh", "-c", lines.joined(separator: "\n")])
+            // Start the proxy with DoH
+            proxyManager.startProxy(serverURL: doh) { success, message in
+                if !success {
+                    completion(false, "Failed to start DoH proxy: \(message)")
+                    return
+                }
+                
+                // Set system DNS to point to the proxy
+                let proxyIP = proxyManager.getProxyDNSAddress()
+                let services = self.listNetworkServices()
+                let proxyIPQ = self.shellEscape(proxyIP)
+                var lines: [String] = []
+                for svc in services {
+                    let svcQ = self.shellEscape(svc)
+                    lines.append("/usr/sbin/networksetup -setdnsservers \(svcQ) \(proxyIPQ)")
+                }
+                lines.append("/usr/bin/dscacheutil -flushcache")
+                lines.append("/usr/bin/killall -HUP mDNSResponder")
+                let script = "set -e\n" + lines.joined(separator: "\n")
+                let result = self.runWithAdmin(args: ["/bin/sh", "-c", script])
+                
+                if result.success {
+                    completion(true, "DoH active via local proxy: \(doh)")
+                } else {
+                    proxyManager.stopProxy()
+                    completion(false, "Failed to set DNS to proxy: \(result.output)")
                 }
             }
-            
-            completion(true, "DoH profile installed: \(doh)")
             return
         }
 
         if let dot = dotHosts.first {
-            // Remove existing profiles
-            _ = runWithAdmin(args: ["/bin/sh", "-c", "/usr/bin/profiles show -type configuration 2>/dev/null | /usr/bin/awk '/Profile identifier:/ {id=$3} /com.apple.dnsSettings.managed/ {if (id) print id}' | while read -r id; do /usr/bin/profiles remove -identifier \"$id\" || true; done"])
-            
-            // Install DoT profile
-            let (ok, message) = installDoTProfileViaAdmin(serverName: dot)
-            if !ok {
-                completion(false, "Failed to install DoT profile: \(message)")
-                return
-            }
-            
-            // Set bootstrap IPs
-            let bootstrapIPs = resolveHostToIPs(dot)
-            if !bootstrapIPs.isEmpty {
-                let services = listNetworkServices()
-                let ipsQ = bootstrapIPs.map { shellEscape($0) }.joined(separator: " ")
+            let dotURL = "tls://\(dot)"
+            // Start the proxy with DoT
+            proxyManager.startProxy(serverURL: dotURL) { success, message in
+                if !success {
+                    completion(false, "Failed to start DoT proxy: \(message)")
+                    return
+                }
+                
+                // Set system DNS to point to the proxy
+                let proxyIP = proxyManager.getProxyDNSAddress()
+                let services = self.listNetworkServices()
+                let proxyIPQ = self.shellEscape(proxyIP)
                 var lines: [String] = []
                 for svc in services {
-                    let svcQ = shellEscape(svc)
-                    lines.append("/usr/sbin/networksetup -setdnsservers \(svcQ) \(ipsQ)")
+                    let svcQ = self.shellEscape(svc)
+                    lines.append("/usr/sbin/networksetup -setdnsservers \(svcQ) \(proxyIPQ)")
                 }
                 lines.append("/usr/bin/dscacheutil -flushcache")
                 lines.append("/usr/bin/killall -HUP mDNSResponder")
-                lines.append("/bin/sleep 1")
-                _ = runWithAdmin(args: ["/bin/sh", "-c", lines.joined(separator: "\n")])
+                let script = "set -e\n" + lines.joined(separator: "\n")
+                let result = self.runWithAdmin(args: ["/bin/sh", "-c", script])
+                
+                if result.success {
+                    completion(true, "DoT active via local proxy: \(dot)")
+                } else {
+                    proxyManager.stopProxy()
+                    completion(false, "Failed to set DNS to proxy: \(result.output)")
+                }
             }
-            
-            completion(true, "DoT profile installed: \(dot)")
             return
         }
 
         guard !ipServers.isEmpty else { completion(false, "No valid DNS servers to apply"); return }
+        
+        // Stop proxy if running (we're using IP DNS now)
+        ProxyManager.shared.stopProxy()
+        
         let services = listNetworkServices()
         guard !services.isEmpty else { completion(false, "No network services found"); return }
 
         let ipsQ = ipServers.map { shellEscape($0) }.joined(separator: " ")
         var lines: [String] = []
-        lines.append("/usr/bin/profiles show -type configuration 2>/dev/null | /usr/bin/awk '/Profile identifier:/ {id=$3} /com.apple.dnsSettings.managed/ {if (id) print id}' | while read -r id; do /usr/bin/profiles remove -identifier \"$id\" || true; /usr/bin/profiles -R -p \"$id\" || true; done")
         for svc in services {
             let svcQ = shellEscape(svc)
             lines.append("/usr/sbin/networksetup -setdnsservers \(svcQ) \(ipsQ)")
@@ -195,6 +200,9 @@ final class DNSChangerClient: NSObject {
     }
 
     private func clearDNSViaAdmin(completion: @escaping (Bool, String) -> Void) {
+        // Stop proxy if running
+        ProxyManager.shared.stopProxy()
+        
         let services = listNetworkServices()
         guard !services.isEmpty else { completion(false, "No network services found"); return }
 
@@ -203,12 +211,11 @@ final class DNSChangerClient: NSObject {
             let svcQ = shellEscape(svc)
             lines.append("/usr/sbin/networksetup -setdnsservers \(svcQ) Empty")
         }
-        lines.append("/usr/bin/profiles show -type configuration 2>/dev/null | /usr/bin/awk '/Profile identifier:/ {id=$3} /com.apple.dnsSettings.managed/ {if (id) print id}' | while read -r id; do /usr/bin/profiles remove -identifier \"$id\" || true; /usr/bin/profiles -R -p \"$id\" || true; done")
         lines.append("/usr/bin/dscacheutil -flushcache")
         lines.append("/usr/bin/killall -HUP mDNSResponder")
         let script = "set -e\n" + lines.joined(separator: "\n")
         let result = runWithAdmin(args: ["/bin/sh", "-c", script])
-        completion(result.success, result.success ? "Cleared on \(services.count) services" : result.output)
+        completion(result.success, result.success ? "Cleared on \(services.count) services and stopped proxy" : result.output)
     }
 
     private func flushDNSViaAdmin(completion: @escaping (Bool, String) -> Void) {

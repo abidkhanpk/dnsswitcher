@@ -35,6 +35,7 @@ targets:
       - path: ../Sources/Shared
     resources:
       - path: ../Resources/config/default_profiles.json
+      - path: ../Resources/proxy
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.pacman.DNSChanger

@@ -4,8 +4,7 @@ import SystemConfiguration
 
 final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelperBlessProtocol {
 
-    private let dohProfileIdentifier = "com.pacman.DNSChanger.encrypteddns"
-    private let dohProfileDisplayName = "DNSChanger Encrypted DNS"
+    private let proxyManager = ProxyManager.shared
 
     func isHelperReady(withReply reply: @escaping (Bool) -> Void) {
         reply(true)
@@ -19,65 +18,65 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         }
         let (ipServers, dohURLs, dotHosts) = classifyServers(servers)
 
+        // Handle DoH
         if let doh = dohURLs.first {
-            // Remove any existing encrypted DNS profiles first
-            removeAllManagedDNSProfiles()
-            
-            // Install the DoH profile
-            let (ok, msg) = installDoHProfile(serverURL: doh)
-            if !ok {
-                reply(false, "Failed to install DoH profile: \(msg)")
-                return
-            }
-            
-            // DO NOT clear per-service DNS - instead set bootstrap IPs
-            if let host = URLComponents(string: doh)?.host {
-                let bootstrapIPs = resolveHostToIPs(host)
-                if !bootstrapIPs.isEmpty {
-                    // Set bootstrap IPs on all services so the DoH server can be reached
-                    let (okSet, _) = setDNSServersUsingSC(bootstrapIPs)
-                    if okSet {
-                        // Flush caches
-                        _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"])
-                        _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"])
-                        // Give it a moment to apply
-                        Thread.sleep(forTimeInterval: 1.0)
-                    }
+            // Start the proxy with DoH
+            proxyManager.startProxy(serverURL: doh) { success, message in
+                if !success {
+                    reply(false, "Failed to start DoH proxy: \(message)")
+                    return
                 }
+                
+                // Set system DNS to point to the proxy
+                let proxyIP = self.proxyManager.getProxyDNSAddress()
+                let (okSet, msgSet) = self.setDNSServersUsingSC([proxyIP])
+                if !okSet {
+                    self.proxyManager.stopProxy()
+                    reply(false, "Failed to set DNS to proxy: \(msgSet)")
+                    return
+                }
+                
+                // Flush caches
+                _ = self.runCommand("/usr/bin/dscacheutil", ["-flushcache"])
+                _ = self.runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"])
+                
+                reply(true, "DoH active via local proxy: \(doh)")
             }
-            
-            reply(true, "DoH profile installed: \(doh)")
             return
         }
         
+        // Handle DoT
         if let dot = dotHosts.first {
-            // Remove any existing encrypted DNS profiles first
-            removeAllManagedDNSProfiles()
-            
-            // Install the DoT profile
-            let (ok, msg) = installDoTProfile(serverName: dot)
-            if !ok {
-                reply(false, "Failed to install DoT profile: \(msg)")
-                return
-            }
-            
-            // Set bootstrap IPs
-            let bootstrapIPs = resolveHostToIPs(dot)
-            if !bootstrapIPs.isEmpty {
-                let (okSet, _) = setDNSServersUsingSC(bootstrapIPs)
-                if okSet {
-                    _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"])
-                    _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"])
-                    Thread.sleep(forTimeInterval: 1.0)
+            let dotURL = "tls://\(dot)"
+            proxyManager.startProxy(serverURL: dotURL) { success, message in
+                if !success {
+                    reply(false, "Failed to start DoT proxy: \(message)")
+                    return
                 }
+                
+                // Set system DNS to point to the proxy
+                let proxyIP = self.proxyManager.getProxyDNSAddress()
+                let (okSet, msgSet) = self.setDNSServersUsingSC([proxyIP])
+                if !okSet {
+                    self.proxyManager.stopProxy()
+                    reply(false, "Failed to set DNS to proxy: \(msgSet)")
+                    return
+                }
+                
+                // Flush caches
+                _ = self.runCommand("/usr/bin/dscacheutil", ["-flushcache"])
+                _ = self.runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"])
+                
+                reply(true, "DoT active via local proxy: \(dot)")
             }
-            
-            reply(true, "DoT profile installed: \(dot)")
             return
         }
         
+        // Handle regular IP DNS
         if !ipServers.isEmpty {
-            removeAllManagedDNSProfiles()
+            // Stop proxy if running
+            proxyManager.stopProxy()
+            
             let (okSet, msgSet) = setDNSServersUsingSC(ipServers)
             if !okSet { reply(false, "Failed to set DNS: \(msgSet)"); return }
             _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"])
@@ -103,12 +102,14 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
     }
 
     func clearDNS(withReply reply: @escaping (Bool, String) -> Void) {
+        // Stop proxy if running
+        proxyManager.stopProxy()
+        
         let (okClr, msgClr) = clearDNSServersUsingSC()
         if !okClr { reply(false, "Failed to clear DNS: \(msgClr)"); return }
-        removeAllManagedDNSProfiles()
         _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"])
         _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"])
-        reply(true, "Cleared system-wide and removed encrypted DNS (if any)")
+        reply(true, "Cleared system-wide and stopped proxy")
     }
 
     func flushDNSCache(withReply reply: @escaping (Bool, String) -> Void) {
@@ -133,32 +134,6 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         return s.range(of: ipv4Pattern, options: .regularExpression) != nil || s.range(of: ipv6Pattern, options: .regularExpression) != nil
     }
 
-    private func resolveHostToIPs(_ host: String) -> [String] {
-        var results: [String] = []
-        var hints = addrinfo(ai_flags: AI_DEFAULT, ai_family: AF_UNSPEC, ai_socktype: SOCK_DGRAM, ai_protocol: 0, ai_addrlen: 0, ai_canonname: nil, ai_addr: nil, ai_next: nil)
-        var res: UnsafeMutablePointer<addrinfo>?
-        let status = getaddrinfo(host, nil, &hints, &res)
-        if status == 0, let first = res {
-            var ptr: UnsafeMutablePointer<addrinfo>? = first
-            while let ai = ptr?.pointee {
-                if let sa = ai.ai_addr {
-                    var buffer = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                    let fam = sa.pointee.sa_family
-                    if fam == sa_family_t(AF_INET) || fam == sa_family_t(AF_INET6) {
-                        let err = getnameinfo(sa, socklen_t(ai.ai_addrlen), &buffer, socklen_t(buffer.count), nil, 0, NI_NUMERICHOST)
-                        if err == 0 {
-                            let ip = String(cString: buffer)
-                            if !results.contains(ip) { results.append(ip) }
-                        }
-                    }
-                }
-                ptr = ai.ai_next
-            }
-            freeaddrinfo(first)
-        }
-        return results
-    }
-
     private func classifyServers(_ servers: [String]) -> (ips: [String], doh: [String], dot: [String]) {
         var ips: [String] = []
         var doh: [String] = []
@@ -180,191 +155,6 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
             }
         }
         return (ips, doh, dot)
-    }
-
-    private func installDoHProfile(serverURL: String) -> (Bool, String) {
-        let uuid1 = UUID().uuidString
-        let uuid2 = UUID().uuidString
-        
-        // Resolve bootstrap IPs
-        var bootstrap: [String] = []
-        if let host = URLComponents(string: serverURL)?.host {
-            bootstrap = resolveHostToIPs(host)
-        }
-        
-        // Build ServerAddresses XML if we have bootstrap IPs
-        var serverAddressesXML = ""
-        if !bootstrap.isEmpty {
-            serverAddressesXML = """
-        <key>ServerAddresses</key>
-        <array>
-
-"""
-            for ip in bootstrap {
-                serverAddressesXML += "          <string>\(ip)</string>\n"
-            }
-            serverAddressesXML += "        </array>\n"
-        }
-        
-        let profile = """
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>PayloadContent</key>
-  <array>
-    <dict>
-      <key>DNSSettings</key>
-      <dict>
-        <key>DNSProtocol</key>
-        <string>HTTPS</string>
-        <key>ServerURL</key>
-        <string>\(serverURL)</string>
-\(serverAddressesXML)      </dict>
-      <key>PayloadDisplayName</key>
-      <string>\(dohProfileDisplayName)</string>
-      <key>PayloadIdentifier</key>
-      <string>\(dohProfileIdentifier).settings</string>
-      <key>PayloadType</key>
-      <string>com.apple.dnsSettings.managed</string>
-      <key>PayloadUUID</key>
-      <string>\(uuid1)</string>
-      <key>PayloadVersion</key>
-      <integer>1</integer>
-    </dict>
-  </array>
-  <key>PayloadDisplayName</key>
-  <string>\(dohProfileDisplayName)</string>
-  <key>PayloadIdentifier</key>
-  <string>\(dohProfileIdentifier)</string>
-  <key>PayloadType</key>
-  <string>Configuration</string>
-  <key>PayloadUUID</key>
-  <string>\(uuid2)</string>
-  <key>PayloadVersion</key>
-  <integer>1</integer>
-  <key>PayloadScope</key>
-  <string>System</string>
-</dict>
-</plist>
-"""
-        let path = "/tmp/dnschanger_encrypted_dns.mobileconfig"
-        do {
-            try profile.write(toFile: path, atomically: true, encoding: .utf8)
-        } catch {
-            return (false, "Failed to write profile: \(error)")
-        }
-        
-        let result = runCommand("/usr/bin/profiles", ["install", "-path", path])
-        if !result.success {
-            return (false, "Profile install failed: \(result.output)")
-        }
-        
-        return (true, "Profile installed successfully")
-    }
-
-    private func installDoTProfile(serverName: String) -> (Bool, String) {
-        let uuid1 = UUID().uuidString
-        let uuid2 = UUID().uuidString
-        
-        // Resolve bootstrap IPs
-        let bootstrap = resolveHostToIPs(serverName)
-        
-        // Build ServerAddresses XML if we have bootstrap IPs
-        var serverAddressesXML = ""
-        if !bootstrap.isEmpty {
-            serverAddressesXML = """
-        <key>ServerAddresses</key>
-        <array>
-
-"""
-            for ip in bootstrap {
-                serverAddressesXML += "          <string>\(ip)</string>\n"
-            }
-            serverAddressesXML += "        </array>\n"
-        }
-        
-        let profile = """
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>PayloadContent</key>
-  <array>
-    <dict>
-      <key>DNSSettings</key>
-      <dict>
-        <key>DNSProtocol</key>
-        <string>TLS</string>
-        <key>ServerName</key>
-        <string>\(serverName)</string>
-\(serverAddressesXML)      </dict>
-      <key>PayloadDisplayName</key>
-      <string>\(dohProfileDisplayName)</string>
-      <key>PayloadIdentifier</key>
-      <string>\(dohProfileIdentifier).settings</string>
-      <key>PayloadType</key>
-      <string>com.apple.dnsSettings.managed</string>
-      <key>PayloadUUID</key>
-      <string>\(uuid1)</string>
-      <key>PayloadVersion</key>
-      <integer>1</integer>
-    </dict>
-  </array>
-  <key>PayloadDisplayName</key>
-  <string>\(dohProfileDisplayName)</string>
-  <key>PayloadIdentifier</key>
-  <string>\(dohProfileIdentifier)</string>
-  <key>PayloadType</key>
-  <string>Configuration</string>
-  <key>PayloadUUID</key>
-  <string>\(uuid2)</string>
-  <key>PayloadVersion</key>
-  <integer>1</integer>
-  <key>PayloadScope</key>
-  <string>System</string>
-</dict>
-</plist>
-"""
-        let path = "/tmp/dnschanger_encrypted_dns.mobileconfig"
-        do {
-            try profile.write(toFile: path, atomically: true, encoding: .utf8)
-        } catch {
-            return (false, "Failed to write profile: \(error)")
-        }
-        
-        let result = runCommand("/usr/bin/profiles", ["install", "-path", path])
-        if !result.success {
-            return (false, "Profile install failed: \(result.output)")
-        }
-        
-        return (true, "Profile installed successfully")
-    }
-
-    private func listManagedDNSProfileIdentifiers() -> [String] {
-        let res = runCommand("/usr/bin/profiles", ["show", "-type", "configuration"])
-        guard res.success else { return [] }
-        var ids: [String] = []
-        var currentID: String? = nil
-        for raw in res.output.components(separatedBy: "\n") {
-            let line = raw.trimmingCharacters(in: .whitespaces)
-            if line.lowercased().hasPrefix("profile identifier:") {
-                let parts = line.split(separator: ":", maxSplits: 1).map { String($0).trimmingCharacters(in: .whitespaces) }
-                if parts.count == 2 { currentID = parts[1] }
-                continue
-            }
-            if line.contains("com.apple.dnsSettings.managed") {
-                if let id = currentID, !ids.contains(id) { ids.append(id) }
-            }
-        }
-        return ids
-    }
-
-    private func removeAllManagedDNSProfiles() {
-        let ids = listManagedDNSProfileIdentifiers()
-        for id in ids {
-            _ = runCommand("/usr/bin/profiles", ["remove", "-identifier", id])
-        }
     }
 
     private func runCommand(_ launchPath: String, _ arguments: [String]) -> (success: Bool, output: String) {
