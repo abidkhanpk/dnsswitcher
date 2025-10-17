@@ -28,6 +28,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.removeObserver(self)
     }
 
+    // Handle custom URL scheme: dnschanger://apply?servers=... or dnschanger://disable
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            guard url.scheme == "dnschanger" else { continue }
+            let host = url.host?.lowercased() ?? ""
+            if host == "disable" {
+                DNSChangerClient.shared.clearDNS { success, message in
+                    self.menuController?.rebuildProfilesSection()
+                    self.notify(title: success ? "Default DNS Enabled" : "Failed", body: message)
+                }
+                continue
+            }
+            if host == "apply" {
+                if let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                   let items = comps.queryItems,
+                   let serversStr = items.first(where: { $0.name == "servers" })?.value {
+                    // servers may be comma separated
+                    let servers = serversStr.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                    if servers.isEmpty { self.notify(title: "Failed", body: "No servers provided"); continue }
+                    DNSChangerClient.shared.applyDNS(servers: servers) { success, message in
+                        self.notify(title: success ? "DNS Applied" : "Failed", body: message)
+                    }
+                } else {
+                    self.notify(title: "Failed", body: "Missing servers parameter")
+                }
+                continue
+            }
+        }
+    }
+
+    private func notify(title: String, body: String) {
+        let n = NSUserNotification()
+        n.title = title
+        n.informativeText = body
+        NSUserNotificationCenter.default.deliver(n)
+    }
+
     @objc func showPreferencesWindow() {
         if prefsWC == nil {
             let hosting = NSHostingController(rootView: PreferencesView())

@@ -27,5 +27,16 @@
 		<key>com.pacman.DNSChangerHelper</key>
 		<string>anchor apple generic and identifier \"com.pacman.DNSChangerHelper\" and certificate leaf[subject.OU] = \"TEAM_ID\"</string>
 	</dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.pacman.DNSChanger.urlscheme</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>dnschanger</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
