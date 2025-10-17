@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import SystemConfiguration
 
 final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelperBlessProtocol {
 
@@ -50,10 +51,8 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         if !ipServers.isEmpty {
             // Remove any existing encrypted DNS profile to avoid conflicts
             removeAllManagedDNSProfiles()
-            for svc in services {
-                let res = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc] + ipServers)
-                if !res.success { reply(false, "Failed for \(svc): \(res.output)"); return }
-            }
+            let (okSet, msgSet) = setDNSServersUsingSC(ipServers)
+            if !okSet { reply(false, "Failed to set DNS: \(msgSet)"); return }
             _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"]) 
             _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"]) 
             let scutil = runCommand("/usr/sbin/scutil", ["--dns"])
@@ -67,9 +66,9 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
                         return part.trimmingCharacters(in: .whitespaces)
                     }
                 let ok = ipServers.contains(where: { active.contains($0) })
-                reply(ok, ok ? "Applied to \(services.count) services (active: \(active.joined(separator: ", ")))" : "Applied but not active; current: \(active.joined(separator: ", "))")
+                reply(ok, ok ? "Applied system-wide (active: \(active.joined(separator: ", ")))" : "Applied but not active; current: \(active.joined(separator: ", "))")
             } else {
-                reply(true, "Applied to \(services.count) services (could not verify)")
+                reply(true, "Applied system-wide (could not verify)")
             }
             return
         }
@@ -77,19 +76,16 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
     }
 
     func clearDNS(withReply reply: @escaping (Bool, String) -> Void) {
-        let services = listNetworkServices()
-        guard !services.isEmpty else {
-            reply(false, "No network services found")
+        // Clear via SystemConfiguration for all services
+        let (okClr, msgClr) = clearDNSServersUsingSC()
+        if !okClr {
+            reply(false, "Failed to clear DNS: \(msgClr)")
             return
-        }
-        for svc in services {
-            let res = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc, "Empty"])
-            if !res.success { reply(false, "Failed for \(svc): \(res.output)"); return }
         }
         removeAllManagedDNSProfiles()
         _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"]) 
         _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"]) 
-        reply(true, "Cleared on \(services.count) services and removed encrypted DNS (if any)")
+        reply(true, "Cleared system-wide and removed encrypted DNS (if any)")
     }
 
     func flushDNSCache(withReply reply: @escaping (Bool, String) -> Void) {
@@ -351,5 +347,60 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         let out = String(data: data, encoding: .utf8) ?? ""
         return (task.terminationStatus == 0, out)
+    }
+
+    // MARK: - SystemConfiguration DNS control (system-wide)
+
+    private func withSCPreferences<T>(_ body: (SCPreferences) -> T?) -> (Bool, T?, String) {
+        guard let prefs = SCPreferencesCreate(nil, "com.pacman.DNSChanger" as CFString, nil) else {
+            return (false, nil, "SCPreferencesCreate failed")
+        }
+        if let result = body(prefs) {
+            if !SCPreferencesCommitChanges(prefs) {
+                return (false, nil, "SCPreferencesCommitChanges failed")
+            }
+            if !SCPreferencesApplyChanges(prefs) {
+                return (false, nil, "SCPreferencesApplyChanges failed")
+            }
+            return (true, result, "")
+        }
+        return (false, nil, "SCPreferences body failed")
+    }
+
+    private func setDNSServersUsingSC(_ addresses: [String]) -> (Bool, String) {
+        let (ok, _, msg) = withSCPreferences { prefs in
+            guard let set = SCNetworkSetCopyCurrent(prefs) else { return nil }
+            guard let services = SCNetworkSetCopyServices(set) as? [SCNetworkService] else { return nil }
+            var touched = false
+            for svc in services {
+                if let proto = SCNetworkServiceCopyProtocol(svc, kSCNetworkProtocolTypeDNS) {
+                    var cfg: [String: Any] = [:]
+                    cfg[kSCPropNetDNSServerAddresses as String] = addresses
+                    if SCNetworkProtocolSetConfiguration(proto, cfg as CFDictionary) {
+                        touched = true
+                    }
+                }
+            }
+            return touched ? true : nil
+        }
+        return (ok, msg)
+    }
+
+    private func clearDNSServersUsingSC() -> (Bool, String) {
+        let (ok, _, msg) = withSCPreferences { prefs in
+            guard let set = SCNetworkSetCopyCurrent(prefs) else { return nil }
+            guard let services = SCNetworkSetCopyServices(set) as? [SCNetworkService] else { return nil }
+            var touched = false
+            for svc in services {
+                if let proto = SCNetworkServiceCopyProtocol(svc, kSCNetworkProtocolTypeDNS) {
+                    let empty: [String: Any] = [:]
+                    if SCNetworkProtocolSetConfiguration(proto, empty as CFDictionary) {
+                        touched = true
+                    }
+                }
+            }
+            return touched ? true : nil
+        }
+        return (ok, msg)
     }
 }
