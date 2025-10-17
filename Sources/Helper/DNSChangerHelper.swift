@@ -20,25 +20,62 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         let (ipServers, dohURLs, dotHosts) = classifyServers(servers)
 
         if let doh = dohURLs.first {
+            // Remove any existing encrypted DNS profiles first
             removeAllManagedDNSProfiles()
+            
+            // Install the DoH profile
             let (ok, msg) = installDoHProfile(serverURL: doh)
-            if ok {
-                for svc in services { _ = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc, "Empty"]) }
-                _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"]) ; _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"]) 
+            if !ok {
+                reply(false, "Failed to install DoH profile: \(msg)")
+                return
             }
-            reply(ok, msg)
+            
+            // DO NOT clear per-service DNS - instead set bootstrap IPs
+            if let host = URLComponents(string: doh)?.host {
+                let bootstrapIPs = resolveHostToIPs(host)
+                if !bootstrapIPs.isEmpty {
+                    // Set bootstrap IPs on all services so the DoH server can be reached
+                    let (okSet, _) = setDNSServersUsingSC(bootstrapIPs)
+                    if okSet {
+                        // Flush caches
+                        _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"])
+                        _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"])
+                        // Give it a moment to apply
+                        Thread.sleep(forTimeInterval: 1.0)
+                    }
+                }
+            }
+            
+            reply(true, "DoH profile installed: \(doh)")
             return
         }
+        
         if let dot = dotHosts.first {
+            // Remove any existing encrypted DNS profiles first
             removeAllManagedDNSProfiles()
+            
+            // Install the DoT profile
             let (ok, msg) = installDoTProfile(serverName: dot)
-            if ok {
-                for svc in services { _ = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc, "Empty"]) }
-                _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"]) ; _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"]) 
+            if !ok {
+                reply(false, "Failed to install DoT profile: \(msg)")
+                return
             }
-            reply(ok, msg)
+            
+            // Set bootstrap IPs
+            let bootstrapIPs = resolveHostToIPs(dot)
+            if !bootstrapIPs.isEmpty {
+                let (okSet, _) = setDNSServersUsingSC(bootstrapIPs)
+                if okSet {
+                    _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"])
+                    _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"])
+                    Thread.sleep(forTimeInterval: 1.0)
+                }
+            }
+            
+            reply(true, "DoT profile installed: \(dot)")
             return
         }
+        
         if !ipServers.isEmpty {
             removeAllManagedDNSProfiles()
             let (okSet, msgSet) = setDNSServersUsingSC(ipServers)
@@ -96,12 +133,6 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         return s.range(of: ipv4Pattern, options: .regularExpression) != nil || s.range(of: ipv6Pattern, options: .regularExpression) != nil
     }
 
-    private func extractHostname(from s: String) -> String? {
-        if let comp = URLComponents(string: s), let host = comp.host, !host.isEmpty { return host }
-        if !isIPAddress(s), s.contains(".") { return s }
-        return nil
-    }
-
     private func resolveHostToIPs(_ host: String) -> [String] {
         var results: [String] = []
         var hints = addrinfo(ai_flags: AI_DEFAULT, ai_family: AF_UNSPEC, ai_socktype: SOCK_DGRAM, ai_protocol: 0, ai_addrlen: 0, ai_canonname: nil, ai_addr: nil, ai_next: nil)
@@ -126,15 +157,6 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
             freeaddrinfo(first)
         }
         return results
-    }
-
-    private func normalizeServers(_ servers: [String]) -> [String] {
-        var ips: [String] = []
-        for raw in servers {
-            let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            if isIPAddress(s), !ips.contains(s) { ips.append(s) }
-        }
-        return ips
     }
 
     private func classifyServers(_ servers: [String]) -> (ips: [String], doh: [String], dot: [String]) {
@@ -163,13 +185,27 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
     private func installDoHProfile(serverURL: String) -> (Bool, String) {
         let uuid1 = UUID().uuidString
         let uuid2 = UUID().uuidString
+        
+        // Resolve bootstrap IPs
         var bootstrap: [String] = []
-        if let host = URLComponents(string: serverURL)?.host { bootstrap = resolveHostToIPs(host) }
-        let bootstrapXML: String = bootstrap.isEmpty ? "" : (
-            "\n                <key>ServerAddresses</key>\n                <array>\n" + 
-            bootstrap.map { "                  <string>\($0)</string>" }.joined(separator: "\n") + 
-            "\n                </array>"
-        )
+        if let host = URLComponents(string: serverURL)?.host {
+            bootstrap = resolveHostToIPs(host)
+        }
+        
+        // Build ServerAddresses XML if we have bootstrap IPs
+        var serverAddressesXML = ""
+        if !bootstrap.isEmpty {
+            serverAddressesXML = """
+        <key>ServerAddresses</key>
+        <array>
+
+"""
+            for ip in bootstrap {
+                serverAddressesXML += "          <string>\(ip)</string>\n"
+            }
+            serverAddressesXML += "        </array>\n"
+        }
+        
         let profile = """
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -183,12 +219,8 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         <key>DNSProtocol</key>
         <string>HTTPS</string>
         <key>ServerURL</key>
-        <string>\(serverURL)</string>\(bootstrapXML)
-        <key>SupplementalMatchDomains</key>
-        <array>
-          <string></string>
-        </array>
-      </dict>
+        <string>\(serverURL)</string>
+\(serverAddressesXML)      </dict>
       <key>PayloadDisplayName</key>
       <string>\(dohProfileDisplayName)</string>
       <key>PayloadIdentifier</key>
@@ -217,20 +249,41 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
 </plist>
 """
         let path = "/tmp/dnschanger_encrypted_dns.mobileconfig"
-        do { try profile.write(toFile: path, atomically: true, encoding: .utf8) } catch { return (false, "Failed to write profile: \(error)") }
+        do {
+            try profile.write(toFile: path, atomically: true, encoding: .utf8)
+        } catch {
+            return (false, "Failed to write profile: \(error)")
+        }
+        
         let result = runCommand("/usr/bin/profiles", ["install", "-path", path])
-        return (result.success, result.output)
+        if !result.success {
+            return (false, "Profile install failed: \(result.output)")
+        }
+        
+        return (true, "Profile installed successfully")
     }
 
     private func installDoTProfile(serverName: String) -> (Bool, String) {
         let uuid1 = UUID().uuidString
         let uuid2 = UUID().uuidString
+        
+        // Resolve bootstrap IPs
         let bootstrap = resolveHostToIPs(serverName)
-        let bootstrapXML: String = bootstrap.isEmpty ? "" : (
-            "\n                <key>ServerAddresses</key>\n                <array>\n" + 
-            bootstrap.map { "                  <string>\($0)</string>" }.joined(separator: "\n") + 
-            "\n                </array>"
-        )
+        
+        // Build ServerAddresses XML if we have bootstrap IPs
+        var serverAddressesXML = ""
+        if !bootstrap.isEmpty {
+            serverAddressesXML = """
+        <key>ServerAddresses</key>
+        <array>
+
+"""
+            for ip in bootstrap {
+                serverAddressesXML += "          <string>\(ip)</string>\n"
+            }
+            serverAddressesXML += "        </array>\n"
+        }
+        
         let profile = """
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -244,12 +297,8 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         <key>DNSProtocol</key>
         <string>TLS</string>
         <key>ServerName</key>
-        <string>\(serverName)</string>\(bootstrapXML)
-        <key>SupplementalMatchDomains</key>
-        <array>
-          <string></string>
-        </array>
-      </dict>
+        <string>\(serverName)</string>
+\(serverAddressesXML)      </dict>
       <key>PayloadDisplayName</key>
       <string>\(dohProfileDisplayName)</string>
       <key>PayloadIdentifier</key>
@@ -278,20 +327,22 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
 </plist>
 """
         let path = "/tmp/dnschanger_encrypted_dns.mobileconfig"
-        do { try profile.write(toFile: path, atomically: true, encoding: .utf8) } catch { return (false, "Failed to write profile: \(error)") }
+        do {
+            try profile.write(toFile: path, atomically: true, encoding: .utf8)
+        } catch {
+            return (false, "Failed to write profile: \(error)")
+        }
+        
         let result = runCommand("/usr/bin/profiles", ["install", "-path", path])
-        return (result.success, result.output)
-    }
-
-    private func removeDoHProfile() -> Bool {
-        let r1 = runCommand("/usr/bin/profiles", ["remove", "-identifier", dohProfileIdentifier])
-        if r1.success { return true }
-        let r2 = runCommand("/usr/bin/profiles", ["-R", "-p", dohProfileIdentifier])
-        return r2.success
+        if !result.success {
+            return (false, "Profile install failed: \(result.output)")
+        }
+        
+        return (true, "Profile installed successfully")
     }
 
     private func listManagedDNSProfileIdentifiers() -> [String] {
-        let res = runCommand("/usr/bin/profiles", ["show", "-type", "configuration", "-user", "root"])
+        let res = runCommand("/usr/bin/profiles", ["show", "-type", "configuration"])
         guard res.success else { return [] }
         var ids: [String] = []
         var currentID: String? = nil
@@ -313,13 +364,7 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         let ids = listManagedDNSProfileIdentifiers()
         for id in ids {
             _ = runCommand("/usr/bin/profiles", ["remove", "-identifier", id])
-            _ = runCommand("/usr/bin/profiles", ["-R", "-p", id])
         }
-    }
-
-    private func verifyManagedDNSInstalled() -> Bool {
-        let ids = listManagedDNSProfileIdentifiers()
-        return ids.contains(dohProfileIdentifier) || !ids.isEmpty
     }
 
     private func runCommand(_ launchPath: String, _ arguments: [String]) -> (success: Bool, output: String) {

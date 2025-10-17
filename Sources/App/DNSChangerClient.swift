@@ -110,38 +110,66 @@ final class DNSChangerClient: NSObject {
         let (ipServers, dohURLs, dotHosts) = classifyServers(servers)
 
         if let doh = dohURLs.first {
-            _ = runWithAdmin(args: ["/bin/sh", "-c", "/usr/bin/profiles show -type configuration 2>/dev/null | /usr/bin/awk '/Profile identifier:/ {id=$3} /com.apple.dnsSettings.managed/ {if (id) print id}' | while read -r id; do /usr/bin/profiles remove -identifier \"$id\" || true; /usr/bin/profiles -R -p \"$id\" || true; done"])            
+            // Remove existing profiles
+            _ = runWithAdmin(args: ["/bin/sh", "-c", "/usr/bin/profiles show -type configuration 2>/dev/null | /usr/bin/awk '/Profile identifier:/ {id=$3} /com.apple.dnsSettings.managed/ {if (id) print id}' | while read -r id; do /usr/bin/profiles remove -identifier \"$id\" || true; done"])
+            
+            // Install DoH profile
             let (ok, message) = installDoHProfileViaAdmin(serverURL: doh)
-            if ok {
-                let services = listNetworkServices()
-                var lines: [String] = []
-                for svc in services {
-                    let svcQ = shellEscape(svc)
-                    lines.append("/usr/sbin/networksetup -setdnsservers \(svcQ) Empty")
-                }
-                lines.append("/usr/bin/dscacheutil -flushcache")
-                lines.append("/usr/bin/killall -HUP mDNSResponder")
-                _ = runWithAdmin(args: ["/bin/sh", "-c", lines.joined(separator: "\n")])
+            if !ok {
+                completion(false, "Failed to install DoH profile: \(message)")
+                return
             }
-            completion(ok, message)
+            
+            // Set bootstrap IPs if available
+            if let host = URLComponents(string: doh)?.host {
+                let bootstrapIPs = resolveHostToIPs(host)
+                if !bootstrapIPs.isEmpty {
+                    let services = listNetworkServices()
+                    let ipsQ = bootstrapIPs.map { shellEscape($0) }.joined(separator: " ")
+                    var lines: [String] = []
+                    for svc in services {
+                        let svcQ = shellEscape(svc)
+                        lines.append("/usr/sbin/networksetup -setdnsservers \(svcQ) \(ipsQ)")
+                    }
+                    lines.append("/usr/bin/dscacheutil -flushcache")
+                    lines.append("/usr/bin/killall -HUP mDNSResponder")
+                    lines.append("/bin/sleep 1")
+                    _ = runWithAdmin(args: ["/bin/sh", "-c", lines.joined(separator: "\n")])
+                }
+            }
+            
+            completion(true, "DoH profile installed: \(doh)")
             return
         }
 
         if let dot = dotHosts.first {
-            _ = runWithAdmin(args: ["/bin/sh", "-c", "/usr/bin/profiles show -type configuration 2>/dev/null | /usr/bin/awk '/Profile identifier:/ {id=$3} /com.apple.dnsSettings.managed/ {if (id) print id}' | while read -r id; do /usr/bin/profiles remove -identifier \"$id\" || true; /usr/bin/profiles -R -p \"$id\" || true; done"])            
+            // Remove existing profiles
+            _ = runWithAdmin(args: ["/bin/sh", "-c", "/usr/bin/profiles show -type configuration 2>/dev/null | /usr/bin/awk '/Profile identifier:/ {id=$3} /com.apple.dnsSettings.managed/ {if (id) print id}' | while read -r id; do /usr/bin/profiles remove -identifier \"$id\" || true; done"])
+            
+            // Install DoT profile
             let (ok, message) = installDoTProfileViaAdmin(serverName: dot)
-            if ok {
+            if !ok {
+                completion(false, "Failed to install DoT profile: \(message)")
+                return
+            }
+            
+            // Set bootstrap IPs
+            let bootstrapIPs = resolveHostToIPs(dot)
+            if !bootstrapIPs.isEmpty {
                 let services = listNetworkServices()
+                let ipsQ = bootstrapIPs.map { shellEscape($0) }.joined(separator: " ")
                 var lines: [String] = []
                 for svc in services {
                     let svcQ = shellEscape(svc)
-                    lines.append("/usr/sbin/networksetup -setdnsservers \(svcQ) Empty")
+                    lines.append("/usr/sbin/networksetup -setdnsservers \(svcQ) \(ipsQ)")
                 }
                 lines.append("/usr/bin/dscacheutil -flushcache")
                 lines.append("/usr/bin/killall -HUP mDNSResponder")
+                lines.append("/bin/sleep 1")
                 _ = runWithAdmin(args: ["/bin/sh", "-c", lines.joined(separator: "\n")])
             }
-            completion(ok, message)
+            
+            completion(true, "DoT profile installed: \(dot)")
             return
         }
 
@@ -271,9 +299,56 @@ final class DNSChangerClient: NSObject {
         return (ips, doh, dot)
     }
 
+    private func resolveHostToIPs(_ host: String) -> [String] {
+        var results: [String] = []
+        var hints = addrinfo(ai_flags: AI_DEFAULT, ai_family: AF_UNSPEC, ai_socktype: SOCK_DGRAM, ai_protocol: 0, ai_addrlen: 0, ai_canonname: nil, ai_addr: nil, ai_next: nil)
+        var res: UnsafeMutablePointer<addrinfo>?
+        let status = getaddrinfo(host, nil, &hints, &res)
+        if status == 0, let first = res {
+            var ptr: UnsafeMutablePointer<addrinfo>? = first
+            while let ai = ptr?.pointee {
+                if let sa = ai.ai_addr {
+                    var buffer = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                    let fam = sa.pointee.sa_family
+                    if fam == sa_family_t(AF_INET) || fam == sa_family_t(AF_INET6) {
+                        let err = getnameinfo(sa, socklen_t(ai.ai_addrlen), &buffer, socklen_t(buffer.count), nil, 0, NI_NUMERICHOST)
+                        if err == 0 {
+                            let ip = String(cString: buffer)
+                            if !results.contains(ip) { results.append(ip) }
+                        }
+                    }
+                }
+                ptr = ai.ai_next
+            }
+            freeaddrinfo(first)
+        }
+        return results
+    }
+
     private func installDoHProfileViaAdmin(serverURL: String) -> (Bool, String) {
         let settingsUUID = UUID().uuidString
         let profileUUID = UUID().uuidString
+        
+        // Resolve bootstrap IPs
+        var bootstrap: [String] = []
+        if let host = URLComponents(string: serverURL)?.host {
+            bootstrap = resolveHostToIPs(host)
+        }
+        
+        // Build ServerAddresses XML if we have bootstrap IPs
+        var serverAddressesXML = ""
+        if !bootstrap.isEmpty {
+            serverAddressesXML = """
+        <key>ServerAddresses</key>
+        <array>
+
+"""
+            for ip in bootstrap {
+                serverAddressesXML += "          <string>\(ip)</string>\n"
+            }
+            serverAddressesXML += "        </array>\n"
+        }
+        
         let profile = """
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -288,11 +363,7 @@ final class DNSChangerClient: NSObject {
         <string>HTTPS</string>
         <key>ServerURL</key>
         <string>\(serverURL)</string>
-        <key>SupplementalMatchDomains</key>
-        <array>
-          <string></string>
-        </array>
-      </dict>
+\(serverAddressesXML)      </dict>
       <key>PayloadDisplayName</key>
       <string>DNSChanger Encrypted DNS</string>
       <key>PayloadIdentifier</key>
@@ -324,7 +395,10 @@ final class DNSChangerClient: NSObject {
         do {
             try profile.write(toFile: path, atomically: true, encoding: .utf8)
             let result = runWithAdmin(args: ["/usr/bin/profiles", "install", "-path", path])
-            return (result.success, result.output)
+            if !result.success {
+                return (false, "Profile install failed: \(result.output)")
+            }
+            return (true, "Profile installed successfully")
         } catch {
             return (false, "Failed to write profile: \(error)")
         }
@@ -333,6 +407,24 @@ final class DNSChangerClient: NSObject {
     private func installDoTProfileViaAdmin(serverName: String) -> (Bool, String) {
         let settingsUUID = UUID().uuidString
         let profileUUID = UUID().uuidString
+        
+        // Resolve bootstrap IPs
+        let bootstrap = resolveHostToIPs(serverName)
+        
+        // Build ServerAddresses XML if we have bootstrap IPs
+        var serverAddressesXML = ""
+        if !bootstrap.isEmpty {
+            serverAddressesXML = """
+        <key>ServerAddresses</key>
+        <array>
+
+"""
+            for ip in bootstrap {
+                serverAddressesXML += "          <string>\(ip)</string>\n"
+            }
+            serverAddressesXML += "        </array>\n"
+        }
+        
         let profile = """
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -347,11 +439,7 @@ final class DNSChangerClient: NSObject {
         <string>TLS</string>
         <key>ServerName</key>
         <string>\(serverName)</string>
-        <key>SupplementalMatchDomains</key>
-        <array>
-          <string></string>
-        </array>
-      </dict>
+\(serverAddressesXML)      </dict>
       <key>PayloadDisplayName</key>
       <string>DNSChanger Encrypted DNS</string>
       <key>PayloadIdentifier</key>
@@ -383,7 +471,10 @@ final class DNSChangerClient: NSObject {
         do {
             try profile.write(toFile: path, atomically: true, encoding: .utf8)
             let result = runWithAdmin(args: ["/usr/bin/profiles", "install", "-path", path])
-            return (result.success, result.output)
+            if !result.success {
+                return (false, "Profile install failed: \(result.output)")
+            }
+            return (true, "Profile installed successfully")
         } catch {
             return (false, "Failed to write profile: \(error)")
         }
