@@ -22,7 +22,6 @@ final class DNSChangerClient: NSObject {
     }
 
     func ensureHelperBlessed(completion: @escaping (Bool) -> Void) {
-        // Try to ping helper; if not reachable, attempt local LaunchDaemon install (no SMJobBless)
         let conn = getConnection()
         let proxy = conn.remoteObjectProxyWithErrorHandler { _ in
             self.installHelperDaemonThenCheck(completion: completion)
@@ -71,8 +70,6 @@ final class DNSChangerClient: NSObject {
         }
     }
 
-    // MARK: - Public API (with helper fallback)
-
     func applyDNS(servers: [String], completion: @escaping (Bool, String) -> Void) {
         ensureHelperBlessed { _ in
             if let proxy = self.getConnection().remoteObjectProxyWithErrorHandler({ _ in
@@ -116,8 +113,6 @@ final class DNSChangerClient: NSObject {
             }
         }
     }
-
-    // MARK: - Fallback admin operations (without helper)
 
     private func applyDNSViaAdmin(servers: [String], completion: @escaping (Bool, String) -> Void) {
         let (ipServers, dohURLs, dotHosts) = classifyServers(servers)
@@ -249,7 +244,7 @@ final class DNSChangerClient: NSObject {
     }
 
     private func shellEscape(_ s: String) -> String {
-        return "'''" + s.replacingOccurrences(of: "'''", with: "''''\\''''") + "'''"
+        return "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private func classifyServers(_ servers: [String]) -> (ips: [String], doh: [String], dot: [String]) {
@@ -299,7 +294,8 @@ final class DNSChangerClient: NSObject {
                 </dict>
             </array>
             <key>PayloadDisplayName</key>
-            <string>DNSChanger Encrypted DNS</string>            <key>PayloadIdentifier</key>
+            <string>DNSChanger Encrypted DNS</string>
+            <key>PayloadIdentifier</key>
             <string>com.pacman.DNSChanger.encrypteddns</string>
             <key>PayloadType</key>
             <string>Configuration</string>
@@ -372,8 +368,6 @@ final class DNSChangerClient: NSObject {
             return (false, "")
         }
     }
-
-    // MARK: - Helper LaunchDaemon install (no SMJobBless)
 
     private func installHelperDaemonThenCheck(completion: @escaping (Bool) -> Void) {
         installHelperDaemon { ok, _ in
