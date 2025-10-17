@@ -168,8 +168,7 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         let bootstrapXML: String = bootstrap.isEmpty ? "" : ("\n                <key>ServerAddresses</key>\n                <array>\n" + bootstrap.map { "                  <string>\($0)</string>" }.joined(separator: "\n") + "\n                </array>\n")
         let profile = """
         <?xml version=\"1.0\" encoding=\"UTF-8\"?>
-        <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
-
+        <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n
         <plist version=\"1.0\">\n
         <dict>\n
           <key>PayloadContent</key>\n
@@ -211,7 +210,8 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         """
         let path = "/tmp/dnschanger_encrypted_dns.mobileconfig"
         do { try profile.write(toFile: path, atomically: true, encoding: .utf8) } catch { return (false, "Failed to write profile: \(error)") }
-        return (true, "PROFILE_CREATED:\(path)")
+        let result = runCommand("/usr/bin/profiles", ["install", "-path", path])
+        return (result.success, result.output)
     }
 
     private func installDoTProfile(serverName: String) -> (Bool, String) {
@@ -221,8 +221,7 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         let bootstrapXML: String = bootstrap.isEmpty ? "" : ("\n                <key>ServerAddresses</key>\n                <array>\n" + bootstrap.map { "                  <string>\($0)</string>" }.joined(separator: "\n") + "\n                </array>\n")
         let profile = """
         <?xml version=\"1.0\" encoding=\"UTF-8\"?>
-        <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
-
+        <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n
         <plist version=\"1.0\">\n
         <dict>\n
           <key>PayloadContent</key>\n
@@ -264,7 +263,8 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         """
         let path = "/tmp/dnschanger_encrypted_dns.mobileconfig"
         do { try profile.write(toFile: path, atomically: true, encoding: .utf8) } catch { return (false, "Failed to write profile: \(error)") }
-        return (true, "PROFILE_CREATED:\(path)")
+        let result = runCommand("/usr/bin/profiles", ["install", "-path", path])
+        return (result.success, result.output)
     }
 
     private func removeDoHProfile() -> Bool {

@@ -75,17 +75,7 @@ final class DNSChangerClient: NSObject {
             if let proxy = self.getConnection().remoteObjectProxyWithErrorHandler({ _ in
                 self.applyDNSViaAdmin(servers: servers, completion: completion)
             }) as? DNSChangerHelperXPCProtocol {
-                proxy.applyDNS(servers) { success, message in
-                    if success, message.hasPrefix("PROFILE_CREATED:") {
-                        let path = String(message.dropFirst("PROFILE_CREATED:".count))
-                        DispatchQueue.main.async {
-                            NSWorkspace.shared.open(URL(fileURLWithPath: path))
-                        }
-                        completion(true, "Profile created. Please approve installation in System Settings.")
-                    } else {
-                        completion(success, message)
-                    }
-                }
+                proxy.applyDNS(servers, withReply: completion)
             } else {
                 self.applyDNSViaAdmin(servers: servers, completion: completion)
             }
@@ -120,28 +110,14 @@ final class DNSChangerClient: NSObject {
         let (ipServers, dohURLs, dotHosts) = classifyServers(servers)
 
         if let doh = dohURLs.first {
-            let (ok, path) = installDoHProfileViaAdmin(serverURL: doh)
-            if ok {
-                DispatchQueue.main.async {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: path))
-                }
-                completion(true, "Profile created. Please approve installation in System Settings.")
-            } else {
-                completion(false, "Failed to create DoH profile.")
-            }
+            let (ok, message) = installDoHProfileViaAdmin(serverURL: doh)
+            completion(ok, message)
             return
         }
 
         if let dot = dotHosts.first {
-            let (ok, path) = installDoTProfileViaAdmin(serverName: dot)
-            if ok {
-                DispatchQueue.main.async {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: path))
-                }
-                completion(true, "Profile created. Please approve installation in System Settings.")
-            } else {
-                completion(false, "Failed to create DoT profile.")
-            }
+            let (ok, message) = installDoTProfileViaAdmin(serverName: dot)
+            completion(ok, message)
             return
         }
 
@@ -317,9 +293,10 @@ final class DNSChangerClient: NSObject {
         let path = "/tmp/dnschanger_encrypted_dns.mobileconfig"
         do {
             try profile.write(toFile: path, atomically: true, encoding: .utf8)
-            return (true, path)
+            let result = runWithAdmin(args: ["/usr/bin/profiles", "install", "-path", path])
+            return (result.success, result.output)
         } catch {
-            return (false, "")
+            return (false, "Failed to write profile: \(error)")
         }
     }
 
@@ -369,9 +346,10 @@ final class DNSChangerClient: NSObject {
         let path = "/tmp/dnschanger_encrypted_dns.mobileconfig"
         do {
             try profile.write(toFile: path, atomically: true, encoding: .utf8)
-            return (true, path)
+            let result = runWithAdmin(args: ["/usr/bin/profiles", "install", "-path", path])
+            return (result.success, result.output)
         } catch {
-            return (false, "")
+            return (false, "Failed to write profile: \(error)")
         }
     }
 
