@@ -21,22 +21,25 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
 
         // Prefer Encrypted DNS (DoH/DoT) over plain IP when present
         if let doh = dohURLs.first {
-            // Clear any per-service IP DNS so managed profile takes effect
-            for svc in services { _ = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc, "Empty"]) }
             // Remove any existing managed DNS profiles before installing new one
             removeAllManagedDNSProfiles()
+            // Install with bootstrap addresses so resolution does not depend on existing DNS
             let (ok, msg) = installDoHProfile(serverURL: doh)
-            _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"])
-            _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"])
+            if ok {
+                // Now clear per-service IP DNS so managed profile takes effect
+                for svc in services { _ = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc, "Empty"]) }
+                _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"]) ; _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"]) 
+            }
             reply(ok, ok ? "Encrypted DNS (DoH) configured: \(doh)" : "Failed to configure DoH: \(msg)")
             return
         }
         if let dot = dotHosts.first {
-            for svc in services { _ = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc, "Empty"]) }
             removeAllManagedDNSProfiles()
             let (ok, msg) = installDoTProfile(serverName: dot)
-            _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"])
-            _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"])
+            if ok {
+                for svc in services { _ = runCommand("/usr/sbin/networksetup", ["-setdnsservers", svc, "Empty"]) }
+                _ = runCommand("/usr/bin/dscacheutil", ["-flushcache"]) ; _ = runCommand("/usr/bin/killall", ["-HUP", "mDNSResponder"]) 
+            }
             reply(ok, ok ? "Encrypted DNS (DoT) configured: \(dot)" : "Failed to configure DoT: \(msg)")
             return
         }
@@ -164,6 +167,10 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
     private func installDoHProfile(serverURL: String) -> (Bool, String) {
         let uuid1 = UUID().uuidString
         let uuid2 = UUID().uuidString
+        // Bootstrap addresses for the DoH host
+        var bootstrap: [String] = []
+        if let host = URLComponents(string: serverURL)?.host { bootstrap = resolveHostToIPs(host) }
+        let bootstrapXML: String = bootstrap.isEmpty ? "" : ("\n                <key>ServerAddresses</key>\n                <array>\n" + bootstrap.map { "                  <string>\($0)</string>" }.joined(separator: "\n") + "\n                </array>\n")
         let profile = """
         <?xml version=\"1.0\" encoding=\"UTF-8\"?>
         <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n
@@ -177,7 +184,7 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
                 <key>DNSProtocol</key>\n
                 <string>HTTPS</string>\n
                 <key>ServerURL</key>\n
-                <string>\(serverURL)</string>\n
+                <string>\(serverURL)</string>\n\(bootstrapXML)
               </dict>\n
               <key>PayloadDisplayName</key>\n
               <string>\(dohProfileDisplayName)</string>\n
@@ -218,6 +225,8 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
     private func installDoTProfile(serverName: String) -> (Bool, String) {
         let uuid1 = UUID().uuidString
         let uuid2 = UUID().uuidString
+        let bootstrap = resolveHostToIPs(serverName)
+        let bootstrapXML: String = bootstrap.isEmpty ? "" : ("\n                <key>ServerAddresses</key>\n                <array>\n" + bootstrap.map { "                  <string>\($0)</string>" }.joined(separator: "\n") + "\n                </array>\n")
         let profile = """
         <?xml version=\"1.0\" encoding=\"UTF-8\"?>
         <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n
@@ -231,7 +240,7 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
                 <key>DNSProtocol</key>\n
                 <string>TLS</string>\n
                 <key>ServerName</key>\n
-                <string>\(serverName)</string>\n
+                <string>\(serverName)</string>\n\(bootstrapXML)
               </dict>\n
               <key>PayloadDisplayName</key>\n
               <string>\(dohProfileDisplayName)</string>\n
