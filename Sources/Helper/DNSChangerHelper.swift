@@ -165,48 +165,57 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         let uuid2 = UUID().uuidString
         var bootstrap: [String] = []
         if let host = URLComponents(string: serverURL)?.host { bootstrap = resolveHostToIPs(host) }
-        let bootstrapXML: String = bootstrap.isEmpty ? "" : ("\n                <key>ServerAddresses</key>\n                <array>\n" + bootstrap.map { "                  <string>\($0)</string>" }.joined(separator: "\n") + "\n                </array>\n")
+        let bootstrapXML: String = bootstrap.isEmpty ? "" : (
+            "\n                <key>ServerAddresses</key>\n                <array>\n" + 
+            bootstrap.map { "                  <string>\($0)</string>" }.joined(separator: "\n") + 
+            "\n                </array>"
+        )
         let profile = """
-        <?xml version=\"1.0\" encoding=\"UTF-8\"?>
-        <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n
-        <plist version=\"1.0\">\n
-        <dict>\n
-          <key>PayloadContent</key>\n
-          <array>\n
-            <dict>\n
-              <key>DNSSettings</key>\n
-              <dict>\n
-                <key>DNSProtocol</key>\n
-                <string>HTTPS</string>\n
-                <key>ServerURL</key>\n
-                <string>\(serverURL)</string>\n\(bootstrapXML)                <key>MatchDomains</key>\n                <array>\n                  <string></string>\n                </array>\n              </dict>\n
-              <key>PayloadDisplayName</key>\n
-              <string>\(dohProfileDisplayName)</string>\n
-              <key>PayloadIdentifier</key>\n
-              <string>\(dohProfileIdentifier).settings</string>\n
-              <key>PayloadType</key>\n
-              <string>com.apple.dnsSettings.managed</string>\n
-              <key>PayloadUUID</key>\n
-              <string>\(uuid1)</string>\n
-              <key>PayloadVersion</key>\n
-              <integer>1</integer>\n
-            </dict>\n
-          </array>\n
-          <key>PayloadDisplayName</key>\n
-          <string>\(dohProfileDisplayName)</string>\n
-          <key>PayloadIdentifier</key>\n
-          <string>\(dohProfileIdentifier)</string>\n
-          <key>PayloadType</key>\n
-          <string>Configuration</string>\n
-          <key>PayloadUUID</key>\n
-          <string>\(uuid2)</string>\n
-          <key>PayloadVersion</key>\n
-          <integer>1</integer>\n
-          <key>PayloadScope</key>\n
-          <string>System</string>\n
-        </dict>\n
-        </plist>\n
-        """
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>DNSSettings</key>
+      <dict>
+        <key>DNSProtocol</key>
+        <string>HTTPS</string>
+        <key>ServerURL</key>
+        <string>\(serverURL)</string>\(bootstrapXML)
+        <key>SupplementalMatchDomains</key>
+        <array>
+          <string></string>
+        </array>
+      </dict>
+      <key>PayloadDisplayName</key>
+      <string>\(dohProfileDisplayName)</string>
+      <key>PayloadIdentifier</key>
+      <string>\(dohProfileIdentifier).settings</string>
+      <key>PayloadType</key>
+      <string>com.apple.dnsSettings.managed</string>
+      <key>PayloadUUID</key>
+      <string>\(uuid1)</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+    </dict>
+  </array>
+  <key>PayloadDisplayName</key>
+  <string>\(dohProfileDisplayName)</string>
+  <key>PayloadIdentifier</key>
+  <string>\(dohProfileIdentifier)</string>
+  <key>PayloadType</key>
+  <string>Configuration</string>
+  <key>PayloadUUID</key>
+  <string>\(uuid2)</string>
+  <key>PayloadVersion</key>
+  <integer>1</integer>
+  <key>PayloadScope</key>
+  <string>System</string>
+</dict>
+</plist>
+"""
         let path = "/tmp/dnschanger_encrypted_dns.mobileconfig"
         do { try profile.write(toFile: path, atomically: true, encoding: .utf8) } catch { return (false, "Failed to write profile: \(error)") }
         let result = runCommand("/usr/bin/profiles", ["install", "-path", path])
@@ -217,48 +226,57 @@ final class DNSChangerHelper: NSObject, DNSChangerHelperProtocol, DNSChangerHelp
         let uuid1 = UUID().uuidString
         let uuid2 = UUID().uuidString
         let bootstrap = resolveHostToIPs(serverName)
-        let bootstrapXML: String = bootstrap.isEmpty ? "" : ("\n                <key>ServerAddresses</key>\n                <array>\n" + bootstrap.map { "                  <string>\($0)</string>" }.joined(separator: "\n") + "\n                </array>\n")
+        let bootstrapXML: String = bootstrap.isEmpty ? "" : (
+            "\n                <key>ServerAddresses</key>\n                <array>\n" + 
+            bootstrap.map { "                  <string>\($0)</string>" }.joined(separator: "\n") + 
+            "\n                </array>"
+        )
         let profile = """
-        <?xml version=\"1.0\" encoding=\"UTF-8\"?>
-        <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n
-        <plist version=\"1.0\">\n
-        <dict>\n
-          <key>PayloadContent</key>\n
-          <array>\n
-            <dict>\n
-              <key>DNSSettings</key>\n
-              <dict>\n
-                <key>DNSProtocol</key>\n
-                <string>TLS</string>\n
-                <key>ServerName</key>\n
-                <string>\(serverName)</string>\n\(bootstrapXML)                <key>MatchDomains</key>\n                <array>\n                  <string></string>\n                </array>\n              </dict>\n
-              <key>PayloadDisplayName</key>\n
-              <string>\(dohProfileDisplayName)</string>\n
-              <key>PayloadIdentifier</key>\n
-              <string>\(dohProfileIdentifier).settings</string>\n
-              <key>PayloadType</key>\n
-              <string>com.apple.dnsSettings.managed</string>\n
-              <key>PayloadUUID</key>\n
-              <string>\(uuid1)</string>\n
-              <key>PayloadVersion</key>\n
-              <integer>1</integer>\n
-            </dict>\n
-          </array>\n
-          <key>PayloadDisplayName</key>\n
-          <string>\(dohProfileDisplayName)</string>\n
-          <key>PayloadIdentifier</key>\n
-          <string>\(dohProfileIdentifier)</string>\n
-          <key>PayloadType</key>\n
-          <string>Configuration</string>\n
-          <key>PayloadUUID</key>\n
-          <string>\(uuid2)</string>\n
-          <key>PayloadVersion</key>\n
-          <integer>1</integer>\n
-          <key>PayloadScope</key>\n
-          <string>System</string>\n
-        </dict>\n
-        </plist>\n
-        """
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>DNSSettings</key>
+      <dict>
+        <key>DNSProtocol</key>
+        <string>TLS</string>
+        <key>ServerName</key>
+        <string>\(serverName)</string>\(bootstrapXML)
+        <key>SupplementalMatchDomains</key>
+        <array>
+          <string></string>
+        </array>
+      </dict>
+      <key>PayloadDisplayName</key>
+      <string>\(dohProfileDisplayName)</string>
+      <key>PayloadIdentifier</key>
+      <string>\(dohProfileIdentifier).settings</string>
+      <key>PayloadType</key>
+      <string>com.apple.dnsSettings.managed</string>
+      <key>PayloadUUID</key>
+      <string>\(uuid1)</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+    </dict>
+  </array>
+  <key>PayloadDisplayName</key>
+  <string>\(dohProfileDisplayName)</string>
+  <key>PayloadIdentifier</key>
+  <string>\(dohProfileIdentifier)</string>
+  <key>PayloadType</key>
+  <string>Configuration</string>
+  <key>PayloadUUID</key>
+  <string>\(uuid2)</string>
+  <key>PayloadVersion</key>
+  <integer>1</integer>
+  <key>PayloadScope</key>
+  <string>System</string>
+</dict>
+</plist>
+"""
         let path = "/tmp/dnschanger_encrypted_dns.mobileconfig"
         do { try profile.write(toFile: path, atomically: true, encoding: .utf8) } catch { return (false, "Failed to write profile: \(error)") }
         let result = runCommand("/usr/bin/profiles", ["install", "-path", path])

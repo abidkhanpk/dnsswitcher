@@ -272,52 +272,54 @@ final class DNSChangerClient: NSObject {
     }
 
     private func installDoHProfileViaAdmin(serverURL: String) -> (Bool, String) {
+        let settingsUUID = UUID().uuidString
+        let profileUUID = UUID().uuidString
         let profile = """
-        <?xml version=\"1.0\" encoding=\"UTF-8\"?>
-        <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
-        <plist version=\"1.0\">
-        <dict>
-            <key>PayloadContent</key>
-            <array>
-                <dict>
-                    <key>DNSSettings</key>
-                    <dict>
-                        <key>DNSProtocol</key>
-                        <string>HTTPS</string>
-                        <key>ServerURL</key>
-                        <string>\(serverURL)</string>
-                        <key>MatchDomains</key>
-                        <array>
-                          <string></string>
-                        </array>
-                    </dict>
-                    <key>PayloadDisplayName</key>
-                    <string>DNSChanger Encrypted DNS</string>
-                    <key>PayloadIdentifier</key>
-                    <string>com.pacman.DNSChanger.encrypteddns.settings</string>
-                    <key>PayloadType</key>
-                    <string>com.apple.dnsSettings.managed</string>
-                    <key>PayloadUUID</key>
-                    <string>\(UUID().uuidString)</string>
-                    <key>PayloadVersion</key>
-                    <integer>1</integer>
-                </dict>
-            </array>
-            <key>PayloadDisplayName</key>
-            <string>DNSChanger Encrypted DNS</string>
-            <key>PayloadIdentifier</key>
-            <string>com.pacman.DNSChanger.encrypteddns</string>
-            <key>PayloadType</key>
-            <string>Configuration</string>
-            <key>PayloadUUID</key>
-            <string>\(UUID().uuidString)</string>
-            <key>PayloadVersion</key>
-            <integer>1</integer>
-            <key>PayloadScope</key>
-            <string>System</string>
-        </dict>
-        </plist>
-        """
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>DNSSettings</key>
+      <dict>
+        <key>DNSProtocol</key>
+        <string>HTTPS</string>
+        <key>ServerURL</key>
+        <string>\(serverURL)</string>
+        <key>SupplementalMatchDomains</key>
+        <array>
+          <string></string>
+        </array>
+      </dict>
+      <key>PayloadDisplayName</key>
+      <string>DNSChanger Encrypted DNS</string>
+      <key>PayloadIdentifier</key>
+      <string>com.pacman.DNSChanger.encrypteddns.settings</string>
+      <key>PayloadType</key>
+      <string>com.apple.dnsSettings.managed</string>
+      <key>PayloadUUID</key>
+      <string>\(settingsUUID)</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+    </dict>
+  </array>
+  <key>PayloadDisplayName</key>
+  <string>DNSChanger Encrypted DNS</string>
+  <key>PayloadIdentifier</key>
+  <string>com.pacman.DNSChanger.encrypteddns</string>
+  <key>PayloadType</key>
+  <string>Configuration</string>
+  <key>PayloadUUID</key>
+  <string>\(profileUUID)</string>
+  <key>PayloadVersion</key>
+  <integer>1</integer>
+  <key>PayloadScope</key>
+  <string>System</string>
+</dict>
+</plist>
+"""
         let path = "/tmp/dnschanger_encrypted_dns.mobileconfig"
         do {
             try profile.write(toFile: path, atomically: true, encoding: .utf8)
@@ -329,52 +331,54 @@ final class DNSChangerClient: NSObject {
     }
 
     private func installDoTProfileViaAdmin(serverName: String) -> (Bool, String) {
+        let settingsUUID = UUID().uuidString
+        let profileUUID = UUID().uuidString
         let profile = """
-        <?xml version=\"1.0\" encoding=\"UTF-8\"?>
-        <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
-        <plist version=\"1.0\">
-        <dict>
-            <key>PayloadContent</key>
-            <array>
-                <dict>
-                    <key>DNSSettings</key>
-                    <dict>
-                        <key>DNSProtocol</key>
-                        <string>TLS</string>
-                        <key>ServerName</key>
-                        <string>\(serverName)</string>
-                        <key>MatchDomains</key>
-                        <array>
-                          <string></string>
-                        </array>
-                    </dict>
-                    <key>PayloadDisplayName</key>
-                    <string>DNSChanger Encrypted DNS</string>
-                    <key>PayloadIdentifier</key>
-                    <string>com.pacman.DNSChanger.encrypteddns.settings</string>
-                    <key>PayloadType</key>
-                    <string>com.apple.dnsSettings.managed</string>
-                    <key>PayloadUUID</key>
-                    <string>\(UUID().uuidString)</string>
-                    <key>PayloadVersion</key>
-                    <integer>1</integer>
-                </dict>
-            </array>
-            <key>PayloadDisplayName</key>
-            <string>DNSChanger Encrypted DNS</string>
-            <key>PayloadIdentifier</key>
-            <string>com.pacman.DNSChanger.encrypteddns</string>
-            <key>PayloadType</key>
-            <string>Configuration</string>
-            <key>PayloadUUID</key>
-            <string>\(UUID().uuidString)</string>
-            <key>PayloadVersion</key>
-            <integer>1</integer>
-            <key>PayloadScope</key>
-            <string>System</string>
-        </dict>
-        </plist>
-        """
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>DNSSettings</key>
+      <dict>
+        <key>DNSProtocol</key>
+        <string>TLS</string>
+        <key>ServerName</key>
+        <string>\(serverName)</string>
+        <key>SupplementalMatchDomains</key>
+        <array>
+          <string></string>
+        </array>
+      </dict>
+      <key>PayloadDisplayName</key>
+      <string>DNSChanger Encrypted DNS</string>
+      <key>PayloadIdentifier</key>
+      <string>com.pacman.DNSChanger.encrypteddns.settings</string>
+      <key>PayloadType</key>
+      <string>com.apple.dnsSettings.managed</string>
+      <key>PayloadUUID</key>
+      <string>\(settingsUUID)</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+    </dict>
+  </array>
+  <key>PayloadDisplayName</key>
+  <string>DNSChanger Encrypted DNS</string>
+  <key>PayloadIdentifier</key>
+  <string>com.pacman.DNSChanger.encrypteddns</string>
+  <key>PayloadType</key>
+  <string>Configuration</string>
+  <key>PayloadUUID</key>
+  <string>\(profileUUID)</string>
+  <key>PayloadVersion</key>
+  <integer>1</integer>
+  <key>PayloadScope</key>
+  <string>System</string>
+</dict>
+</plist>
+"""
         let path = "/tmp/dnschanger_encrypted_dns.mobileconfig"
         do {
             try profile.write(toFile: path, atomically: true, encoding: .utf8)
