@@ -20,12 +20,21 @@ class ProxyManager {
         // Stop any existing proxy
         stopProxy()
         
+        // Check if DoT is requested (not supported by dnscrypt-proxy 2.1.5)
+        if serverURL.lowercased().hasPrefix("tls://") {
+            completion(false, "DoT is not supported by dnscrypt-proxy 2.1.5. Please use DoH instead.")
+            return
+        }
+        
         // Get paths
         guard let proxyBinary = getProxyBinaryPath(),
               let configTemplate = getConfigTemplatePath() else {
             completion(false, "Proxy binary or config not found")
             return
         }
+        
+        // Remove quarantine attribute from binary
+        removeQuarantine(from: proxyBinary)
         
         // Create runtime config
         let runtimeConfigPath = createRuntimeConfig(serverURL: serverURL, templatePath: configTemplate)
@@ -49,15 +58,32 @@ class ProxyManager {
             try process.run()
             proxyProcess = process
             
-            // Give it a moment to start
-            Thread.sleep(forTimeInterval: 0.5)
+            // Wait for proxy to initialize (dnscrypt-proxy needs time to connect to DoH servers)
+            // We'll check if it's running and give it time to initialize
+            var initialized = false
+            for attempt in 1...30 {
+                Thread.sleep(forTimeInterval: 1.0)
+                
+                if !process.isRunning {
+                    let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                    let errorOutput = String(data: errorData, encoding: .utf8) ?? "Unknown error"
+                    completion(false, "Proxy crashed during startup: \(errorOutput)")
+                    return
+                }
+                
+                // Check if port is listening (indicates proxy is ready)
+                if isPortListening(port: proxyPort) {
+                    initialized = true
+                    NSLog("Proxy initialized after \(attempt) seconds")
+                    break
+                }
+            }
             
-            if process.isRunning {
+            if initialized {
                 completion(true, "Proxy started on \(proxyAddress):\(proxyPort)")
             } else {
-                let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                let errorOutput = String(data: errorData, encoding: .utf8) ?? "Unknown error"
-                completion(false, "Proxy failed to start: \(errorOutput)")
+                process.terminate()
+                completion(false, "Proxy started but failed to initialize within 30 seconds")
             }
         } catch {
             completion(false, "Failed to start proxy: \(error.localizedDescription)")
@@ -83,6 +109,35 @@ class ProxyManager {
     }
     
     // MARK: - Private Helpers
+    
+    private func isPortListening(port: Int) -> Bool {
+        let task = Process()
+        task.launchPath = "/usr/sbin/lsof"
+        task.arguments = ["-i", ":\(port)", "-sTCP:LISTEN"]
+        task.standardOutput = Pipe()
+        task.standardError = Pipe()
+        do {
+            try task.run()
+            task.waitUntilExit()
+            return task.terminationStatus == 0
+        } catch {
+            return false
+        }
+    }
+    
+    private func removeQuarantine(from path: String) {
+        let task = Process()
+        task.launchPath = "/usr/bin/xattr"
+        task.arguments = ["-d", "com.apple.quarantine", path]
+        task.standardOutput = Pipe()
+        task.standardError = Pipe()
+        do {
+            try task.run()
+            task.waitUntilExit()
+        } catch {
+            NSLog("Failed to remove quarantine: \(error)")
+        }
+    }
     
     private func getProxyBinaryPath() -> String? {
         // Try bundle resources first
@@ -145,7 +200,10 @@ class ProxyManager {
             config += customServerConfig
             
             // Set server_names to use our custom server
-            if let range = config.range(of: "# server_names = ['cloudflare', 'google']") {
+            // Replace the existing server_names line
+            if let range = config.range(of: "server_names = ['cloudflare']") {
+                config.replaceSubrange(range, with: "server_names = ['\(serverName)']")
+            } else if let range = config.range(of: "# server_names = ['cloudflare', 'google']") {
                 config.replaceSubrange(range, with: "server_names = ['\(serverName)']")
             }
             

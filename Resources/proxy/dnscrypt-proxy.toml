@@ -20,8 +20,8 @@ dnscrypt_servers = false
 # Use servers implementing the DNS-over-HTTPS protocol
 doh_servers = true
 
-# Use servers implementing the DNS-over-TLS protocol
-dot_servers = true
+# Use servers implementing the Oblivious DoH protocol
+odoh_servers = false
 
 # Require DNSSEC validation
 require_dnssec = false
@@ -33,7 +33,7 @@ require_nolog = false
 require_nofilter = false
 
 # Server names to use (will be replaced dynamically)
-# server_names = ['cloudflare', 'google']
+server_names = ['cloudflare']
 
 # How long a DNS query will wait for a response, in milliseconds
 timeout = 5000
@@ -45,7 +45,7 @@ keepalive = 30
 lb_strategy = 'p2'
 
 # Log level (0-6, 0 = no logs, 6 = very verbose)
-log_level = 0
+log_level = 1
 
 # Use the system logger (syslog on Unix, Event Log on Windows)
 use_syslog = false
@@ -131,18 +131,3 @@ cache_neg_max_ttl = 600
 
 [static.'cloudflare']
 stamp = 'sdns://AgcAAAAAAAAABzEuMS4xLjEAEmRucy5jbG91ZGZsYXJlLmNvbQovZG5zLXF1ZXJ5'
-
-[static.'cloudflare-security']
-stamp = 'sdns://AgcAAAAAAAAADDEuMS4xLjIgMS4wLjAuMgASZG5zLmNsb3VkZmxhcmUuY29tCi9kbnMtcXVlcnk'
-
-[static.'google']
-stamp = 'sdns://AgUAAAAAAAAAACAe9iTP_15r07rd8_3b_epWVGfjdymdx-5mdRZvMAzBuQ5kbnMuZ29vZ2xlLmNvbQ0vZXhwZXJpbWVudGFs'
-
-[static.'quad9']
-stamp = 'sdns://AgEAAAAAAAAAACA-GhoPbFPz6XpJLVcIS1uYBwWe4FerFQWHb9g_2j24OBBkbnM5LnF1YWQ5Lm5ldDo0NDMKL2Rucy1xdWVyeQ'
-
-[static.'adguard']
-stamp = 'sdns://AgcAAAAAAAAADzk0LjE0MC4xNC4xNDo0NDMAD2Rucy5hZGd1YXJkLmNvbQovZG5zLXF1ZXJ5'
-
-[static.'nextdns']
-stamp = 'sdns://AgcAAAAAAAAAAAAPZG5zLm5leHRkbnMuaW8KL2Rucy1xdWVyeQ'
