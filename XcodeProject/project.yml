@@ -35,7 +35,6 @@ targets:
       - path: ../Sources/Shared
     resources:
       - path: ../Resources/config/default_profiles.json
-      - path: ../Resources/proxy
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.pacman.DNSChanger
@@ -74,34 +73,6 @@ targets:
             /bin/chmod 755 "$HELPER_DST"
           else
             echo "Helper executable not found at $HELPER_SRC; skipping embed."
-          fi
-        basedOnDependencyAnalysis: false
-      - name: Copy Proxy Resources
-        script: |
-          set -euo pipefail
-          APP_RESOURCES="${TARGET_BUILD_DIR}/${PRODUCT_NAME}.app/Contents/Resources"
-          PROXY_SRC="${PROJECT_DIR}/../Resources/proxy"
-          CONFIG_SRC="${PROJECT_DIR}/../Resources/config"
-          
-          # Copy proxy directory
-          if [ -d "$PROXY_SRC" ]; then
-            echo "Copying proxy resources from $PROXY_SRC"
-            mkdir -p "${APP_RESOURCES}/proxy"
-            /bin/cp -R "$PROXY_SRC"/* "${APP_RESOURCES}/proxy/"
-            chmod +x "${APP_RESOURCES}/proxy/dnscrypt-proxy" || true
-            echo "Proxy resources copied successfully"
-          else
-            echo "Warning: Proxy directory not found at $PROXY_SRC"
-          fi
-          
-          # Copy config directory
-          if [ -d "$CONFIG_SRC" ]; then
-            echo "Copying config resources from $CONFIG_SRC"
-            mkdir -p "${APP_RESOURCES}/config"
-            /bin/cp -R "$CONFIG_SRC"/* "${APP_RESOURCES}/config/"
-            echo "Config resources copied successfully"
-          else
-            echo "Warning: Config directory not found at $CONFIG_SRC"
           fi
         basedOnDependencyAnalysis: false
 

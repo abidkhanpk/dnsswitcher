@@ -1,7 +1,6 @@
 import Foundation
 import ServiceManagement
 import Security
-import AppKit
 
 final class DNSChangerClient: NSObject {
     static let shared = DNSChangerClient()
@@ -22,6 +21,7 @@ final class DNSChangerClient: NSObject {
     }
 
     func ensureHelperBlessed(completion: @escaping (Bool) -> Void) {
+        // Try to ping helper; if not reachable, attempt local LaunchDaemon install (no SMJobBless)
         let conn = getConnection()
         let proxy = conn.remoteObjectProxyWithErrorHandler { _ in
             self.installHelperDaemonThenCheck(completion: completion)
@@ -70,6 +70,8 @@ final class DNSChangerClient: NSObject {
         }
     }
 
+    // MARK: - Public API (with helper fallback)
+
     func applyDNS(servers: [String], completion: @escaping (Bool, String) -> Void) {
         ensureHelperBlessed { _ in
             if let proxy = self.getConnection().remoteObjectProxyWithErrorHandler({ _ in
@@ -106,85 +108,19 @@ final class DNSChangerClient: NSObject {
         }
     }
 
+    // MARK: - Fallback admin operations (without helper)
+
     private func applyDNSViaAdmin(servers: [String], completion: @escaping (Bool, String) -> Void) {
-        let (ipServers, dohURLs, dotHosts) = classifyServers(servers)
-        let proxyManager = ProxyManager.shared
-
-        if let doh = dohURLs.first {
-            // Start the proxy with DoH
-            proxyManager.startProxy(serverURL: doh) { success, message in
-                if !success {
-                    completion(false, "Failed to start DoH proxy: \(message)")
-                    return
-                }
-                
-                // Set system DNS to point to the proxy
-                let proxyIP = proxyManager.getProxyDNSAddress()
-                let services = self.listNetworkServices()
-                let proxyIPQ = self.shellEscape(proxyIP)
-                var lines: [String] = []
-                for svc in services {
-                    let svcQ = self.shellEscape(svc)
-                    lines.append("/usr/sbin/networksetup -setdnsservers \(svcQ) \(proxyIPQ)")
-                }
-                lines.append("/usr/bin/dscacheutil -flushcache")
-                lines.append("/usr/bin/killall -HUP mDNSResponder")
-                let script = "set -e\n" + lines.joined(separator: "\n")
-                let result = self.runWithAdmin(args: ["/bin/sh", "-c", script])
-                
-                if result.success {
-                    completion(true, "DoH active via local proxy: \(doh)")
-                } else {
-                    proxyManager.stopProxy()
-                    completion(false, "Failed to set DNS to proxy: \(result.output)")
-                }
-            }
-            return
-        }
-
-        if let dot = dotHosts.first {
-            let dotURL = "tls://\(dot)"
-            // Start the proxy with DoT
-            proxyManager.startProxy(serverURL: dotURL) { success, message in
-                if !success {
-                    completion(false, "Failed to start DoT proxy: \(message)")
-                    return
-                }
-                
-                // Set system DNS to point to the proxy
-                let proxyIP = proxyManager.getProxyDNSAddress()
-                let services = self.listNetworkServices()
-                let proxyIPQ = self.shellEscape(proxyIP)
-                var lines: [String] = []
-                for svc in services {
-                    let svcQ = self.shellEscape(svc)
-                    lines.append("/usr/sbin/networksetup -setdnsservers \(svcQ) \(proxyIPQ)")
-                }
-                lines.append("/usr/bin/dscacheutil -flushcache")
-                lines.append("/usr/bin/killall -HUP mDNSResponder")
-                let script = "set -e\n" + lines.joined(separator: "\n")
-                let result = self.runWithAdmin(args: ["/bin/sh", "-c", script])
-                
-                if result.success {
-                    completion(true, "DoT active via local proxy: \(dot)")
-                } else {
-                    proxyManager.stopProxy()
-                    completion(false, "Failed to set DNS to proxy: \(result.output)")
-                }
-            }
-            return
-        }
-
-        guard !ipServers.isEmpty else { completion(false, "No valid DNS servers to apply"); return }
-        
-        // Stop proxy if running (we're using IP DNS now)
-        ProxyManager.shared.stopProxy()
-        
+        let ipServers = servers.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { isIPAddress($0) }
+        guard !ipServers.isEmpty else { completion(false, "No valid IP DNS servers to apply"); return }
         let services = listNetworkServices()
         guard !services.isEmpty else { completion(false, "No network services found"); return }
 
+        // Build a single privileged script to avoid multiple admin prompts
         let ipsQ = ipServers.map { shellEscape($0) }.joined(separator: " ")
         var lines: [String] = []
+        // Remove any existing managed Encrypted DNS profiles (from any source)
+        lines.append("/usr/bin/profiles show -type configuration 2>/dev/null | /usr/bin/awk '/Profile identifier:/ {id=$3} /com.apple.dnsSettings.managed/ {if (id) print id}' | while read -r id; do /usr/bin/profiles remove -identifier \"$id\" || true; /usr/bin/profiles -R -p \"$id\" || true; done")
         for svc in services {
             let svcQ = shellEscape(svc)
             lines.append("/usr/sbin/networksetup -setdnsservers \(svcQ) \(ipsQ)")
@@ -194,28 +130,29 @@ final class DNSChangerClient: NSObject {
         let script = "set -e\n" + lines.joined(separator: "\n")
         let result = runWithAdmin(args: ["/bin/sh", "-c", script])
 
+        // Verify active DNS via scutil --dns
         let active = currentDNSServers()
         let ok = ipServers.contains(where: { active.contains($0) }) && result.success
         completion(ok, ok ? "Applied to \(services.count) services (active: \(active.joined(separator: ", ")))" : (result.success ? "Applied but not active; current: \(active.joined(separator: ", "))" : result.output))
     }
 
     private func clearDNSViaAdmin(completion: @escaping (Bool, String) -> Void) {
-        // Stop proxy if running
-        ProxyManager.shared.stopProxy()
-        
         let services = listNetworkServices()
         guard !services.isEmpty else { completion(false, "No network services found"); return }
 
+        // Build a single privileged script to avoid multiple admin prompts
         var lines: [String] = []
         for svc in services {
             let svcQ = shellEscape(svc)
             lines.append("/usr/sbin/networksetup -setdnsservers \(svcQ) Empty")
         }
+        // Remove any existing managed Encrypted DNS profiles (from any source)
+        lines.append("/usr/bin/profiles show -type configuration 2>/dev/null | /usr/bin/awk '/Profile identifier:/ {id=$3} /com.apple.dnsSettings.managed/ {if (id) print id}' | while read -r id; do /usr/bin/profiles remove -identifier \"$id\" || true; /usr/bin/profiles -R -p \"$id\" || true; done")
         lines.append("/usr/bin/dscacheutil -flushcache")
         lines.append("/usr/bin/killall -HUP mDNSResponder")
         let script = "set -e\n" + lines.joined(separator: "\n")
         let result = runWithAdmin(args: ["/bin/sh", "-c", script])
-        completion(result.success, result.success ? "Cleared on \(services.count) services and stopped proxy" : result.output)
+        completion(result.success, result.success ? "Cleared on \(services.count) services" : result.output)
     }
 
     private func flushDNSViaAdmin(completion: @escaping (Bool, String) -> Void) {
@@ -285,207 +222,17 @@ final class DNSChangerClient: NSObject {
     }
 
     private func shellEscape(_ s: String) -> String {
-        return "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let specials = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "'\\\"$`"))
+        if s.rangeOfCharacter(from: specials) == nil {
+            return s
+        }
+        var result = "'"
+        for c in s { if c == "'" { result += "'\\''" } else { result.append(c) } }
+        result += "'"
+        return result
     }
 
-    private func classifyServers(_ servers: [String]) -> (ips: [String], doh: [String], dot: [String]) {
-        var ips: [String] = []
-        var doh: [String] = []
-        var dot: [String] = []
-        for raw in servers {
-            let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            if isIPAddress(s) {
-                if !ips.contains(s) { ips.append(s) }
-            } else if s.lowercased().hasPrefix("https://") {
-                if !doh.contains(s) { doh.append(s) }
-            } else if s.lowercased().hasPrefix("tls://") {
-                let host = String(s.dropFirst("tls://".count))
-                if !dot.contains(host) { dot.append(host) }
-            }
-        }
-        return (ips, doh, dot)
-    }
-
-    private func resolveHostToIPs(_ host: String) -> [String] {
-        var results: [String] = []
-        var hints = addrinfo(ai_flags: AI_DEFAULT, ai_family: AF_UNSPEC, ai_socktype: SOCK_DGRAM, ai_protocol: 0, ai_addrlen: 0, ai_canonname: nil, ai_addr: nil, ai_next: nil)
-        var res: UnsafeMutablePointer<addrinfo>?
-        let status = getaddrinfo(host, nil, &hints, &res)
-        if status == 0, let first = res {
-            var ptr: UnsafeMutablePointer<addrinfo>? = first
-            while let ai = ptr?.pointee {
-                if let sa = ai.ai_addr {
-                    var buffer = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                    let fam = sa.pointee.sa_family
-                    if fam == sa_family_t(AF_INET) || fam == sa_family_t(AF_INET6) {
-                        let err = getnameinfo(sa, socklen_t(ai.ai_addrlen), &buffer, socklen_t(buffer.count), nil, 0, NI_NUMERICHOST)
-                        if err == 0 {
-                            let ip = String(cString: buffer)
-                            if !results.contains(ip) { results.append(ip) }
-                        }
-                    }
-                }
-                ptr = ai.ai_next
-            }
-            freeaddrinfo(first)
-        }
-        return results
-    }
-
-    private func installDoHProfileViaAdmin(serverURL: String) -> (Bool, String) {
-        let settingsUUID = UUID().uuidString
-        let profileUUID = UUID().uuidString
-        
-        // Resolve bootstrap IPs
-        var bootstrap: [String] = []
-        if let host = URLComponents(string: serverURL)?.host {
-            bootstrap = resolveHostToIPs(host)
-        }
-        
-        // Build ServerAddresses XML if we have bootstrap IPs
-        var serverAddressesXML = ""
-        if !bootstrap.isEmpty {
-            serverAddressesXML = """
-        <key>ServerAddresses</key>
-        <array>
-
-"""
-            for ip in bootstrap {
-                serverAddressesXML += "          <string>\(ip)</string>\n"
-            }
-            serverAddressesXML += "        </array>\n"
-        }
-        
-        let profile = """
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>PayloadContent</key>
-  <array>
-    <dict>
-      <key>DNSSettings</key>
-      <dict>
-        <key>DNSProtocol</key>
-        <string>HTTPS</string>
-        <key>ServerURL</key>
-        <string>\(serverURL)</string>
-\(serverAddressesXML)      </dict>
-      <key>PayloadDisplayName</key>
-      <string>DNSChanger Encrypted DNS</string>
-      <key>PayloadIdentifier</key>
-      <string>com.pacman.DNSChanger.encrypteddns.settings</string>
-      <key>PayloadType</key>
-      <string>com.apple.dnsSettings.managed</string>
-      <key>PayloadUUID</key>
-      <string>\(settingsUUID)</string>
-      <key>PayloadVersion</key>
-      <integer>1</integer>
-    </dict>
-  </array>
-  <key>PayloadDisplayName</key>
-  <string>DNSChanger Encrypted DNS</string>
-  <key>PayloadIdentifier</key>
-  <string>com.pacman.DNSChanger.encrypteddns</string>
-  <key>PayloadType</key>
-  <string>Configuration</string>
-  <key>PayloadUUID</key>
-  <string>\(profileUUID)</string>
-  <key>PayloadVersion</key>
-  <integer>1</integer>
-  <key>PayloadScope</key>
-  <string>System</string>
-</dict>
-</plist>
-"""
-        let path = "/tmp/dnschanger_encrypted_dns.mobileconfig"
-        do {
-            try profile.write(toFile: path, atomically: true, encoding: .utf8)
-            let result = runWithAdmin(args: ["/usr/bin/profiles", "install", "-path", path])
-            if !result.success {
-                return (false, "Profile install failed: \(result.output)")
-            }
-            return (true, "Profile installed successfully")
-        } catch {
-            return (false, "Failed to write profile: \(error)")
-        }
-    }
-
-    private func installDoTProfileViaAdmin(serverName: String) -> (Bool, String) {
-        let settingsUUID = UUID().uuidString
-        let profileUUID = UUID().uuidString
-        
-        // Resolve bootstrap IPs
-        let bootstrap = resolveHostToIPs(serverName)
-        
-        // Build ServerAddresses XML if we have bootstrap IPs
-        var serverAddressesXML = ""
-        if !bootstrap.isEmpty {
-            serverAddressesXML = """
-        <key>ServerAddresses</key>
-        <array>
-
-"""
-            for ip in bootstrap {
-                serverAddressesXML += "          <string>\(ip)</string>\n"
-            }
-            serverAddressesXML += "        </array>\n"
-        }
-        
-        let profile = """
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>PayloadContent</key>
-  <array>
-    <dict>
-      <key>DNSSettings</key>
-      <dict>
-        <key>DNSProtocol</key>
-        <string>TLS</string>
-        <key>ServerName</key>
-        <string>\(serverName)</string>
-\(serverAddressesXML)      </dict>
-      <key>PayloadDisplayName</key>
-      <string>DNSChanger Encrypted DNS</string>
-      <key>PayloadIdentifier</key>
-      <string>com.pacman.DNSChanger.encrypteddns.settings</string>
-      <key>PayloadType</key>
-      <string>com.apple.dnsSettings.managed</string>
-      <key>PayloadUUID</key>
-      <string>\(settingsUUID)</string>
-      <key>PayloadVersion</key>
-      <integer>1</integer>
-    </dict>
-  </array>
-  <key>PayloadDisplayName</key>
-  <string>DNSChanger Encrypted DNS</string>
-  <key>PayloadIdentifier</key>
-  <string>com.pacman.DNSChanger.encrypteddns</string>
-  <key>PayloadType</key>
-  <string>Configuration</string>
-  <key>PayloadUUID</key>
-  <string>\(profileUUID)</string>
-  <key>PayloadVersion</key>
-  <integer>1</integer>
-  <key>PayloadScope</key>
-  <string>System</string>
-</dict>
-</plist>
-"""
-        let path = "/tmp/dnschanger_encrypted_dns.mobileconfig"
-        do {
-            try profile.write(toFile: path, atomically: true, encoding: .utf8)
-            let result = runWithAdmin(args: ["/usr/bin/profiles", "install", "-path", path])
-            if !result.success {
-                return (false, "Profile install failed: \(result.output)")
-            }
-            return (true, "Profile installed successfully")
-        } catch {
-            return (false, "Failed to write profile: \(error)")
-        }
-    }
+    // MARK: - Helper LaunchDaemon install (no SMJobBless)
 
     private func installHelperDaemonThenCheck(completion: @escaping (Bool) -> Void) {
         installHelperDaemon { ok, _ in
@@ -498,6 +245,7 @@ final class DNSChangerClient: NSObject {
                     completion(false)
                 }
             } else {
+                // As a last resort, try SMJobBless if signing is available
                 self.blessHelper(completion: completion)
             }
         }
@@ -513,8 +261,7 @@ final class DNSChangerClient: NSObject {
         }
         let plist = """
         <?xml version=\"1.0\" encoding=\"UTF-8\"?>
-        <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
-
+        <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n
         <plist version=\"1.0\"><dict>
           <key>Label</key><string>com.pacman.DNSChangerHelper</string>
           <key>ProgramArguments</key>

@@ -2,7 +2,7 @@
 build/
 DerivedData/
 *.xcworkspace/
-# *.xcodeproj/
+*.xcodeproj/
 
 # Swift Package Manager
 .build/

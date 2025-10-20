@@ -23,25 +23,9 @@ struct PreferencesView: View {
     @State private var editingProfile: DNSProfile? = nil
     @State private var editName: String = ""
     @State private var editServers: String = ""
-    @State private var quickApplyText: String = ""
-
-    private enum ProfileKind: String, CaseIterable, Identifiable { case ip = "IP", doh = "DoH", dot = "DoT"; var id: String { rawValue } }
-    @State private var newKind: ProfileKind = .ip
-    @State private var editKind: ProfileKind = .ip
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Quick Apply").font(.headline)
-            HStack {
-                TextField("Enter IPs, DoH URL (https://...) or DoT host (tls://... or hostname)", text: $quickApplyText)
-                Button("Apply Now") {
-                    let servers = parseFlexible(quickApplyText)
-                    guard !servers.isEmpty else { return }
-                    DNSChangerClient.shared.applyDNS(servers: servers) { _, _ in }
-                    quickApplyText = ""
-                }
-            }
-            Divider().padding(.vertical, 4)
             Text("DNS Profiles").font(.headline)
             List {
                 if !defaultProfiles.isEmpty {
@@ -96,42 +80,35 @@ struct PreferencesView: View {
                 HStack {
                     TextField("Profile name", text: $editName)
                     TextField("Comma-separated servers", text: $editServers)
-                    Picker("Type", selection: $editKind) {
-                    ForEach(ProfileKind.allCases) { k in Text(k.rawValue).tag(k) }
-                    }.pickerStyle(SegmentedPickerStyle()).frame(width: 220)
                     Button("Save") {
-                    let ss = buildServers(from: editServers, kind: editKind)
-                    guard !editName.isEmpty, !ss.isEmpty else { return }
-                    if let idx = profiles.firstIndex(where: { $0.id == editing.id }) {
-                    profiles[idx].name = editName
-                    profiles[idx].servers = ss
-                    save()
-                    }
-                    editingProfile = nil
-                    editName = ""
-                    editServers = ""
+                        let ss = editServers.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                        guard !editName.isEmpty, !ss.isEmpty else { return }
+                        if let idx = profiles.firstIndex(where: { $0.id == editing.id }) {
+                            profiles[idx].name = editName
+                            profiles[idx].servers = ss
+                            save()
+                        }
+                        editingProfile = nil
+                        editName = ""
+                        editServers = ""
                     }
                     Button("Cancel") {
-                    editingProfile = nil
-                    editName = ""
-                    editServers = ""
+                        editingProfile = nil
+                        editName = ""
+                        editServers = ""
                     }
                 }
             }
 
             HStack {
                 TextField("Profile name", text: $newName)
-                TextField("Servers (IPs, DoH URL, or DoT host)", text: $newServers)
-                Picker("Type", selection: $newKind) {
-                    ForEach(ProfileKind.allCases) { k in Text(k.rawValue).tag(k) }
-                }.pickerStyle(SegmentedPickerStyle()).frame(width: 220)
+                TextField("Comma-separated servers", text: $newServers)
                 Button("Add") {
-                    let ss = buildServers(from: newServers, kind: newKind)
+                    let ss = newServers.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
                     guard !newName.isEmpty, !ss.isEmpty else { return }
                     profiles.append(DNSProfile(name: newName, servers: ss))
                     newName = ""
                     newServers = ""
-                    newKind = .ip
                     save()
                 }
             }
@@ -142,11 +119,6 @@ struct PreferencesView: View {
     }
 
     private func load() {
-        // set editKind when a profile is selected for editing
-        if let p = editingProfile {
-            editKind = inferKind(for: p.servers)
-            editServers = p.servers.joined(separator: ", ")
-        }
         defaultProfiles = DNSProfile.loadDefaultProfiles() ?? []
         if let custom = try? JSONDecoder().decode([DNSProfile].self, from: customProfilesData) {
             profiles = custom
@@ -182,52 +154,6 @@ struct PreferencesView: View {
             UserDefaults.standard.removeObject(forKey: "activeProfileName")
         }
         save()
-    }
-private func parseFlexible(_ text: String) -> [String] {
-        var results: [String] = []
-        func addToken(_ t: String) {
-            var token = t.trimmingCharacters(in: .whitespacesAndNewlines)
-            if token.isEmpty { return }
-            if token.lowercased().hasPrefix("doh:") {
-                token = "https://" + String(token.dropFirst(4))
-            } else if token.lowercased().hasPrefix("dot:") {
-                token = "tls://" + String(token.dropFirst(4))
-            } else if !token.lowercased().hasPrefix("https://") && !token.lowercased().hasPrefix("tls://") {
-                if token.contains(".") && token.range(of: "^[-A-Za-z0-9_.:]+$", options: .regularExpression) != nil {
-                    token = "tls://" + token
-                }
-            }
-            if !results.contains(token) { results.append(token) }
-        }
-        text.split(separator: ",").forEach { addToken(String($0)) }
-        return results
-    }
-
-    private func buildServers(from text: String, kind: ProfileKind) -> [String] {
-        let parts = text.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        switch kind {
-        case .ip:
-            return parts
-        case .doh:
-            guard let first = parts.first else { return [] }
-            if first.lowercased().hasPrefix("https://") { return [first] }
-            if first.lowercased().hasPrefix("doh:") { return ["https://" + String(first.dropFirst(4))] }
-            // If bare host, try to prefix https://
-            return ["https://" + first]
-        case .dot:
-            guard let first = parts.first else { return [] }
-            if first.lowercased().hasPrefix("tls://") { return [first] }
-            if first.lowercased().hasPrefix("dot:") { return ["tls://" + String(first.dropFirst(4))] }
-            return ["tls://" + first]
-        }
-    }
-
-    private func inferKind(for servers: [String]) -> ProfileKind {
-        if let s = servers.first {
-            if s.lowercased().hasPrefix("https://") { return .doh }
-            if s.lowercased().hasPrefix("tls://") { return .dot }
-        }
-        return .ip
     }
 }
 
